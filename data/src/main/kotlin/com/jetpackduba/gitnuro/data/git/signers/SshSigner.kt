@@ -1,11 +1,17 @@
 package com.jetpackduba.gitnuro.data.git.signers
 
-import Signing
+import com.jetpackduba.gitnuro.Signing
+import com.jetpackduba.gitnuro.common.extensions.TAG
+import com.jetpackduba.gitnuro.common.printError
 import com.jetpackduba.gitnuro.domain.credentials.CredentialsStateManager
+import com.jetpackduba.gitnuro.domain.errors.Either
+import com.jetpackduba.gitnuro.domain.errors.SshSigningError
+import com.jetpackduba.gitnuro.domain.errors.handleException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.eclipse.jgit.lib.*
 import org.eclipse.jgit.transport.CredentialsProvider
+import java.io.File
 import javax.inject.Inject
 
 class SshSigner @Inject constructor(
@@ -24,12 +30,39 @@ class SshSigner @Inject constructor(
             throw CancellationException("Signing key not specified")
         }
 
-        val credentials = runBlocking { // TODO Run blocking perhaps could be replaced?
-            credentialsStateManager.requestSshCredentials()
-        }
-        val result = Signing.signData(data, signingKey, credentials.password)
+        var password = ""
+        var result: Either<String, SshSigningError>
+        do {
+            result = signData(data, signingKey, password)
 
-        return GpgSignature(result.toByteArray(Charsets.UTF_8))
+            if (result is Either.Ok) {
+                return GpgSignature(result.value.toByteArray(Charsets.UTF_8))
+            }
+
+            val credentials = runBlocking { // TODO Run blocking perhaps could be replaced?
+                val isRetry = password.isNotEmpty() && result is Either.Err
+
+                credentialsStateManager.requestSshCredentials(isRetry, password)
+            }
+
+            password = credentials.password
+        } while (result is Either.Err)
+
+        throw CancellationException("Signing cancelled")
+    }
+
+    private fun signData(data: ByteArray, signingKey: String, password: String?): Either<String, SshSigningError> {
+        return runBlocking {
+            handleException(
+                exceptionMapper = { exception ->
+                    printError(TAG, exception.message.orEmpty(), exception)
+                    SshSigningError.InvalidPassword(password.orEmpty())
+                }
+            ) {
+                val signer = Signing()
+                signer.signData(data, signingKey, password)
+            }
+        }
     }
 
     override fun canLocateSigningKey(

@@ -1,9 +1,6 @@
-@file:OptIn(ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
-
 package com.jetpackduba.gitnuro.ui
 
 import androidx.compose.desktop.ui.tooling.preview.Preview
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -13,7 +10,6 @@ import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -28,27 +24,28 @@ import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import com.jetpackduba.gitnuro.extensions.handMouseClickable
-import com.jetpackduba.gitnuro.extensions.ignoreKeyEvents
 import com.jetpackduba.gitnuro.app.generated.resources.*
 import com.jetpackduba.gitnuro.domain.models.PullType
+import com.jetpackduba.gitnuro.extensions.handMouseClickable
+import com.jetpackduba.gitnuro.extensions.ignoreKeyEvents
 import com.jetpackduba.gitnuro.keybindings.Keybinding
 import com.jetpackduba.gitnuro.keybindings.KeybindingOption
 import com.jetpackduba.gitnuro.keybindings.keyBinding
-import com.jetpackduba.gitnuro.theme.notoSansMonoFontFamily
+import com.jetpackduba.gitnuro.repositoryopen.RepositoryOpenViewModel
+import com.jetpackduba.gitnuro.theme.monoTypography
 import com.jetpackduba.gitnuro.theme.onBackgroundSecondary
 import com.jetpackduba.gitnuro.ui.components.PrimaryButton
 import com.jetpackduba.gitnuro.ui.components.tooltip.InstantTooltip
 import com.jetpackduba.gitnuro.ui.context_menu.*
-import com.jetpackduba.gitnuro.viewmodels.MenuViewModel
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
-// TODO Add tooltips to all the buttons
+private const val DISABLED_BUTTON_ALPHA = 0.5F
+
 @Composable
 fun Menu(
     modifier: Modifier,
-    menuViewModel: MenuViewModel,
+    viewModel: RepositoryOpenViewModel,
     onCreateBranch: () -> Unit,
     onOpenAnotherRepository: (String) -> Unit,
     onOpenAnotherRepositoryFromPicker: () -> Unit,
@@ -58,8 +55,12 @@ fun Menu(
     showOpenPopup: Boolean,
     onShowOpenPopupChange: (Boolean) -> Unit,
 ) {
-    val isPullWithRebaseDefault by menuViewModel.isPullWithRebaseDefault.collectAsState(false)
-    val lastLoadedTabs by menuViewModel.lastLoadedTabs.collectAsState()
+    val isPullWithRebaseDefault by viewModel.isPullWithRebaseDefault.collectAsState(false)
+    val lastLoadedTabs by viewModel.lastLoadedTabs.collectAsState()
+    val hasUncommittedChanges by viewModel.hasUncommittedChanges.collectAsState()
+    val stashesState by viewModel.stashesState.collectAsState()
+    val remotes by viewModel.remoteState.collectAsState()
+    val hasRemotes = remotes.remotes.isNotEmpty()
     val (position, setPosition) = remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     Row(
@@ -81,20 +82,22 @@ fun Menu(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        val pullTooltip = if (isPullWithRebaseDefault) {
+        val pullTooltip = if (!hasRemotes) {
+            stringResource(Res.string.menu_pull_tooltip_disabled)
+        } else if (isPullWithRebaseDefault) {
             stringResource(Res.string.menu_pull_rebase)
         } else {
             stringResource(Res.string.menu_pull_default)
         }
 
-
         ExtendedMenuButton(
             modifier = Modifier.padding(end = 4.dp),
             title = stringResource(Res.string.menu_pull),
             tooltipText = pullTooltip,
+            enabled = hasRemotes,
             icon = painterResource(Res.drawable.download),
             keybinding = KeybindingOption.PULL.keyBinding,
-            onClick = { menuViewModel.pull(PullType.DEFAULT) },
+            onClick = { viewModel.pull(PullType.DEFAULT) },
             extendedListItems = pullContextMenuItems(
                 isPullWithRebaseDefault = isPullWithRebaseDefault,
                 onPullWith = {
@@ -105,26 +108,33 @@ fun Menu(
                         PullType.REBASE
                     }
 
-                    menuViewModel.pull(pullType = pullType)
+                    viewModel.pull(pullType = pullType)
                 },
                 onFetchAll = {
-                    menuViewModel.fetchAll()
+                    viewModel.fetchAll()
                 }
             )
         )
 
+        val pushTooltip = if (!hasRemotes) {
+            stringResource(Res.string.menu_push_tooltip_disabled)
+        } else {
+            stringResource(Res.string.menu_push_tooltip)
+        }
+
         ExtendedMenuButton(
             title = stringResource(Res.string.menu_push),
-            tooltipText = stringResource(Res.string.menu_push_tooltip),
+            tooltipText = pushTooltip,
+            enabled = hasRemotes,
             icon = painterResource(Res.drawable.upload),
-            onClick = { menuViewModel.push() },
+            onClick = { viewModel.push(force = false, pushTags = false) },
             keybinding = KeybindingOption.PUSH.keyBinding,
             extendedListItems = pushContextMenuItems(
                 onPushWithTags = {
-                    menuViewModel.push(force = false, pushTags = true)
+                    viewModel.push(force = false, pushTags = true)
                 },
                 onForcePush = {
-                    menuViewModel.push(force = true)
+                    viewModel.push(force = true, pushTags = false)
                 }
             )
         )
@@ -144,24 +154,42 @@ fun Menu(
 
         Spacer(modifier = Modifier.width(32.dp))
 
+        val enableStash = hasUncommittedChanges
+
+        val stashTooltipText = if (enableStash) {
+            stringResource(Res.string.menu_stash_tooltip)
+        } else {
+            stringResource(Res.string.menu_stash_tooltip_disabled)
+        }
+
         ExtendedMenuButton(
             modifier = Modifier.padding(end = 4.dp),
             title = stringResource(Res.string.menu_stash),
-            tooltipText = stringResource(Res.string.menu_stash_tooltip),
+            tooltipText = stashTooltipText,
+            enabled = enableStash,
             icon = painterResource(Res.drawable.stash),
-            keybinding = KeybindingOption.STASH.keyBinding,
-            onClick = { menuViewModel.stash() },
+            keybinding = if (enableStash) KeybindingOption.STASH.keyBinding else null,
+            onClick = { viewModel.stash() },
             extendedListItems = stashContextMenuItems(
                 onStashWithMessage = onStashWithMessage
             )
         )
 
+        val enablePopStash = stashesState.stashes.isNotEmpty()
+
+        val popStashTooltipText = if (enablePopStash) {
+            stringResource(Res.string.menu_pop_stash_tooltip)
+        } else {
+            stringResource(Res.string.menu_pop_stash_tooltip_disabled)
+        }
+
         MenuButton(
             title = stringResource(Res.string.menu_pop_stash),
             icon = painterResource(Res.drawable.apply_stash),
             keybinding = KeybindingOption.STASH_POP.keyBinding,
-            tooltip = stringResource(Res.string.menu_pop_stash_tooltip),
-        ) { menuViewModel.popStash() }
+            tooltip = popStashTooltipText,
+            enabled = enablePopStash,
+        ) { viewModel.popStash() }
 
         Spacer(modifier = Modifier.weight(1f))
 
@@ -169,7 +197,7 @@ fun Menu(
             modifier = Modifier.padding(end = 4.dp),
             title = stringResource(Res.string.menu_terminal),
             icon = painterResource(Res.drawable.terminal),
-            onClick = { menuViewModel.openTerminal() },
+            onClick = { viewModel.openTerminal() },
             tooltip = stringResource(Res.string.menu_terminal_tooltip),
             keybinding = null,
         )
@@ -201,16 +229,16 @@ fun Menu(
 
         Popup(
             popupPositionProvider =
-            object : PopupPositionProvider {
-                override fun calculatePosition(
-                    anchorBounds: IntRect,
-                    windowSize: IntSize,
-                    layoutDirection: LayoutDirection,
-                    popupContentSize: IntSize,
-                ): IntOffset {
-                    return IntOffset(boundsInRoot.left.toInt(), boundsInRoot.bottom.toInt())
-                }
-            },
+                object : PopupPositionProvider {
+                    override fun calculatePosition(
+                        anchorBounds: IntRect,
+                        windowSize: IntSize,
+                        layoutDirection: LayoutDirection,
+                        popupContentSize: IntSize,
+                    ): IntOffset {
+                        return IntOffset(boundsInRoot.left.toInt(), boundsInRoot.bottom.toInt())
+                    }
+                },
             onDismissRequest = { onShowOpenPopupChange(false) },
             properties = PopupProperties(focusable = true),
         ) {
@@ -269,6 +297,8 @@ fun MenuButton(
     tooltipEnabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val keybinding = if (enabled) keybinding else null
+
     InstantTooltip(
         text = tooltip,
         enabled = tooltipEnabled,
@@ -278,12 +308,14 @@ fun MenuButton(
             null
         }
     ) {
+        val color = MaterialTheme.colors.onBackground.copy(alpha = if (enabled) 1F else DISABLED_BUTTON_ALPHA)
+
         Column(
             modifier = modifier
                 .ignoreKeyEvents()
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colors.surface)
-                .handMouseClickable { if (enabled) onClick() }
+                .handMouseClickable(enabled) { onClick() }
                 .size(56.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -293,14 +325,14 @@ fun MenuButton(
                 contentDescription = title,
                 modifier = Modifier
                     .size(24.dp),
-                tint = MaterialTheme.colors.onBackground,
+                tint = color,
             )
             Text(
                 text = title,
                 style = MaterialTheme.typography.caption,
                 maxLines = 1,
                 textAlign = TextAlign.Center,
-                color = MaterialTheme.colors.onBackground,
+                color = color,
             )
         }
     }
@@ -312,7 +344,7 @@ fun KeybindingHint(keybinding: Keybinding) {
 
     Text(
         parts,
-        fontFamily = notoSansMonoFontFamily,
+        fontFamily = monoTypography(),
         fontSize = MaterialTheme.typography.caption.fontSize,
         fontWeight = FontWeight.Medium,
         color = MaterialTheme.colors.onBackgroundSecondary,
@@ -406,13 +438,16 @@ fun ExtendedMenuButton(
     onClick: () -> Unit,
     extendedListItems: List<ContextMenuElement>,
 ) {
+    val color = MaterialTheme.colors.onBackground.copy(alpha = if (enabled) 1F else DISABLED_BUTTON_ALPHA)
+    val keybinding = if (enabled) keybinding else null
+
     Row(
         modifier = modifier
             .size(width = 64.dp, height = 56.dp)
             .ignoreKeyEvents()
             .clip(RoundedCornerShape(4.dp))
             .background(MaterialTheme.colors.surface)
-            .handMouseClickable { if (enabled) onClick() }
+            .handMouseClickable(enabled) { onClick() }
     ) {
         InstantTooltip(
             text = tooltipText,
@@ -436,18 +471,19 @@ fun ExtendedMenuButton(
                     contentDescription = title,
                     modifier = Modifier
                         .size(24.dp),
-                    tint = MaterialTheme.colors.onBackground,
+                    tint = color,
                 )
                 Text(
                     text = title,
                     style = MaterialTheme.typography.caption,
-                    color = MaterialTheme.colors.onBackground,
+                    color = color,
                     maxLines = 1,
                 )
             }
         }
 
         DropDownMenu(
+            enabled = enabled,
             items = { extendedListItems }
         ) {
             Box(
@@ -460,7 +496,7 @@ fun ExtendedMenuButton(
                 Icon(
                     painterResource(Res.drawable.expand_more),
                     contentDescription = null,
-                    tint = MaterialTheme.colors.onBackground,
+                    tint = color,
                     modifier = Modifier.size(16.dp)
                 )
 

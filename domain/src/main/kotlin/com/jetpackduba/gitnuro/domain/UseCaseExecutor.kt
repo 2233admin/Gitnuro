@@ -1,56 +1,132 @@
 package com.jetpackduba.gitnuro.domain
 
-import com.jetpackduba.gitnuro.domain.errors.AppError
-import com.jetpackduba.gitnuro.domain.errors.Either
-import com.jetpackduba.gitnuro.domain.errors.EitherContext
-import com.jetpackduba.gitnuro.domain.errors.GenericError
-import com.jetpackduba.gitnuro.domain.errors.RepositoryPathNotSetError
-import com.jetpackduba.gitnuro.domain.errors.either
+import com.jetpackduba.gitnuro.domain.errors.*
 import com.jetpackduba.gitnuro.domain.extensions.runOperationInTabScope
+import com.jetpackduba.gitnuro.domain.extensions.runOperationInTabScopeAsync
 import com.jetpackduba.gitnuro.domain.models.TaskType
-import com.jetpackduba.gitnuro.domain.models.newErrorNow
-import com.jetpackduba.gitnuro.domain.repositories.IErrorsRepository
+import com.jetpackduba.gitnuro.domain.repositories.FailureSeverity
 import com.jetpackduba.gitnuro.domain.repositories.RepositoryDataRepository
 import com.jetpackduba.gitnuro.domain.repositories.RepositoryStateRepository
+import com.jetpackduba.gitnuro.domain.usecases.DataToRefresh
+import com.jetpackduba.gitnuro.domain.usecases.RefreshDataUseCase
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import javax.inject.Inject
+import javax.inject.Provider
 
 class UseCaseExecutor @Inject constructor(
     private val repositoryDataRepository: RepositoryDataRepository,
     private val repositoryStateRepository: RepositoryStateRepository,
-    private val errorsRepository: IErrorsRepository,
+    private val refreshDataUseCase: Provider<RefreshDataUseCase>,
     private val scope: TabCoroutineScope,
 ) {
     suspend fun <T> execute(
-        taskType: TaskType,
+        dataToRefresh: Array<DataToRefresh> = emptyArray(),
+        refreshEvenIfFailed: Boolean = false,
         block: suspend EitherContext<AppError>.(String) -> Either<T, AppError>,
     ): Either<T, AppError> {
-        return executeTask(taskType, block)
+        return executeTask(dataToRefresh = dataToRefresh, refreshEvenIfFailed, block)
+    }
+    suspend fun executeWithoutResult(
+        dataToRefresh: Array<DataToRefresh> = emptyArray(),
+        refreshEvenIfFailed: Boolean = false,
+        block: suspend EitherContext<AppError>.(String) -> Unit,
+    ) {
+        executeTask(dataToRefresh = dataToRefresh, refreshEvenIfFailed) {
+            this@executeTask.block(it)
+            Either.Ok(Unit)
+        }
+    }
+
+    fun executeOnTabScope(
+        block: suspend EitherContext<AppError>.(String) -> Unit,
+    ) {
+        scope.launch {
+            executeTask(
+                refreshEvenIfFailed = false,
+                dataToRefresh = emptyArray(),
+                block = {
+                    block(it)
+                    Either.Ok(Unit)
+                }
+            )
+        }
     }
 
     fun <T> executeLaunch(
         taskType: TaskType,
+        dataToRefresh: Array<DataToRefresh>,
         refreshEvenIfFailed: Boolean = false,
-        onRefresh: suspend () -> Unit,
+        isForegroundTask: Boolean = true,
         block: suspend EitherContext<AppError>.(String) -> Either<T, AppError>,
-    ) {
-        repositoryStateRepository.runOperationInTabScope(scope) {
-            if (executeTask(taskType, block) is Either.Ok || refreshEvenIfFailed) {
-                onRefresh()
+    ): Job {
+        return repositoryStateRepository.runOperationInTabScope(taskType, scope, isForegroundTask) {
+            executeTaskWithErrorHandling(
+                taskType,
+                dataToRefresh,
+                refreshEvenIfFailed,
+                block,
+            )
+        }
+    }
+
+    fun <T> executeLaunchAsync(
+        taskType: TaskType,
+        dataToRefresh: Array<DataToRefresh>,
+        refreshEvenIfFailed: Boolean = false,
+        isForegroundTask: Boolean = true,
+        block: suspend EitherContext<AppError>.(String) -> Either<T, AppError>,
+    ): Deferred<Either<T, AppError>> {
+        return repositoryStateRepository.runOperationInTabScopeAsync(taskType, scope, isForegroundTask) {
+            executeTaskWithErrorHandling(
+                taskType,
+                dataToRefresh,
+                refreshEvenIfFailed,
+                block,
+            )
+        }
+    }
+
+    private suspend fun <T> executeTaskWithErrorHandling(
+        taskType: TaskType,
+        dataToRefresh: Array<DataToRefresh>,
+        refreshEvenIfFailed: Boolean = false,
+        block: suspend EitherContext<AppError>.(String) -> Either<T, AppError>,
+    ): Either<T, AppError> {
+        return executeTask(
+            dataToRefresh = dataToRefresh,
+            refreshEvenIfFailed,
+            block
+        ).apply {
+            when (this) {
+                is Either.Err -> repositoryStateRepository.addCompletedTaskFailed(
+                    taskType,
+                    this.error,
+                    FailureSeverity.HIGH,
+                )
+
+                is Either.Ok -> repositoryStateRepository.addCompletedTaskSuccessfully(taskType)
             }
         }
     }
 
     private suspend fun <T> executeTask(
-        taskType: TaskType,
+        dataToRefresh: Array<DataToRefresh>,
+        refreshEvenIfFailed: Boolean,
         block: suspend EitherContext<AppError>.(String) -> Either<T, AppError>
     ): Either<T, AppError> {
         try {
             val repositoryPath = repositoryDataRepository.repositoryPath ?: return Either.Err(RepositoryPathNotSetError)
-            return either { block(repositoryPath) }
+            return either { block(repositoryPath) }.apply {
+                if (this is Either.Ok || refreshEvenIfFailed) {
+                    if (dataToRefresh.isNotEmpty()) {
+                        refreshDataUseCase.get()(*dataToRefresh)
+                    }
+                }
+            }
         } catch (e: Exception) {
-            errorsRepository.addError(newErrorNow(taskType, e))
-
-            return Either.Err(GenericError(e.message.orEmpty()))
+            return Either.Err(GenericError(e.message.orEmpty(), e))
         }
     }
 }

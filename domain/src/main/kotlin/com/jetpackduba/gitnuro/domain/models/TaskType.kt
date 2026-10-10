@@ -3,21 +3,20 @@ package com.jetpackduba.gitnuro.domain.models
 sealed interface TaskType {
     data object Unspecified : TaskType
     data object StageAllFiles : TaskType
-    data object UnstageAllFiles : TaskType
-    data object StageFile : TaskType
-    data object UnstageFile : TaskType
-    data object StageHunk : TaskType
-    data object UnstageHunk : TaskType
-    data object StageLine : TaskType
-    data object UnstageLine : TaskType
     data object StageDir : TaskType
+    data object StageFile : TaskType
+    data object StageHunk : TaskType
+    data object StageLine : TaskType
+    data object UnstageAllFiles : TaskType
     data object UnstageDir : TaskType
+    data object UnstageFile : TaskType
+    data object UnstageHunk : TaskType
+    data object UnstageLine : TaskType
     data object DiscardFile : TaskType
     data object DeleteFile : TaskType
     data object BlameFile : TaskType
     data object HistoryFile : TaskType
     data object DoCommit : TaskType
-    data object AmendCommit : TaskType
     data object RevertCommit : TaskType
     data object CherryPickCommit : TaskType
     data object CheckoutCommit : TaskType
@@ -59,6 +58,21 @@ sealed interface TaskType {
     data object RepositoryOpen : TaskType
     data object RepositoryClone : TaskType
     data object AddRemote : TaskType
+    data object UpdateRemote : TaskType
     data object DeleteRemote : TaskType
     data object LoadAuthor : TaskType
+    data object SaveAuthor : TaskType
+    data object GetCommitForRebase : TaskType
+    data object GetLinesForRebaseInteractive : TaskType
+    data object GetFileCommits : TaskType
+    data object GetCommitDiffEntries : TaskType
+    data object RefreshLog : TaskType
+    data object RefreshBranches : TaskType
+    data object RefreshStatus : TaskType
+    data object RefreshRepositoryState : TaskType
+    data object RefreshRemotes : TaskType
+    data object RefreshSubmodules : TaskType
+    data object RefreshTags : TaskType
+    data object RefreshStashes : TaskType
+    data object GetWorktree : TaskType
 }

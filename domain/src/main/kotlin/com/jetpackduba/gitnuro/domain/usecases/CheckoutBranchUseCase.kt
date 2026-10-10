@@ -1,27 +1,21 @@
 package com.jetpackduba.gitnuro.domain.usecases
 
-import com.jetpackduba.gitnuro.domain.interfaces.ICheckoutRefGitAction
+import com.jetpackduba.gitnuro.domain.UseCaseExecutor
+import com.jetpackduba.gitnuro.domain.interfaces.ICheckoutBranchGitAction
 import com.jetpackduba.gitnuro.domain.models.Branch
 import com.jetpackduba.gitnuro.domain.models.TaskType
-import com.jetpackduba.gitnuro.domain.models.positiveNotification
-import com.jetpackduba.gitnuro.domain.repositories.RefreshType
-import com.jetpackduba.gitnuro.domain.repositories.TabInstanceRepository
 import javax.inject.Inject
 
 class CheckoutBranchUseCase @Inject constructor(
-    private val checkoutRefGitAction: ICheckoutRefGitAction,
-    private val tabState: TabInstanceRepository,
+    private val checkoutBranchGitAction: ICheckoutBranchGitAction,
+    private val useCaseExecutor: UseCaseExecutor,
 ) {
-    fun invoke(ref: Branch) {
-        tabState.safeProcessing(
-            refreshType = RefreshType.ALL_DATA,
-            title = "Branch checkout",
-            subtitle = "Checking out branch ${ref.simpleName}",
+    operator fun invoke(branch: Branch) {
+        useCaseExecutor.executeLaunch(
             taskType = TaskType.CheckoutBranch,
-        ) { git ->
-            checkoutRefGitAction(git, ref)
-
-            positiveNotification("\"${ref.simpleName}\" checked out")
+            dataToRefresh = arrayOf(DataToRefresh.ALL),
+        ) { repositoryPath ->
+            checkoutBranchGitAction(repositoryPath, branch)
         }
     }
 }

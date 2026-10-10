@@ -2,25 +2,27 @@ package com.jetpackduba.gitnuro.viewmodels
 
 import androidx.compose.ui.text.input.TextFieldValue
 import com.jetpackduba.gitnuro.TabViewModel
-import com.jetpackduba.gitnuro.domain.models.CloneState
+import com.jetpackduba.gitnuro.domain.errors.AppError
 import com.jetpackduba.gitnuro.domain.interfaces.ICloneRepositoryGitAction
-import com.jetpackduba.gitnuro.domain.repositories.TabInstanceRepository
+import com.jetpackduba.gitnuro.domain.models.AppConfig
+import com.jetpackduba.gitnuro.domain.models.CloneState
 import com.jetpackduba.gitnuro.domain.services.AppSettingsService
-import com.jetpackduba.gitnuro.system.OpenFilePickerGitAction
+import com.jetpackduba.gitnuro.system.OpenFilePickerUseCase
 import com.jetpackduba.gitnuro.system.PickerType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
 
 class CloneViewModel @Inject constructor(
-    private val tabState: TabInstanceRepository,
     private val cloneRepositoryGitAction: ICloneRepositoryGitAction,
-    private val openFilePickerGitAction: OpenFilePickerGitAction,
+    private val openFilePickerUseCase: OpenFilePickerUseCase,
     private val appSettings: AppSettingsService,
 ) : TabViewModel() {
     private val _repositoryUrl = MutableStateFlow(TextFieldValue(""))
@@ -39,26 +41,26 @@ class CloneViewModel @Inject constructor(
     private val _cloneState = MutableStateFlow<CloneState>(CloneState.None)
     val cloneState = _cloneState.asStateFlow()
 
-    private val _error = MutableStateFlow("")
-    val error = _error.asStateFlow()
+    val error: StateFlow<CloneUiError?>
+        field = MutableStateFlow<CloneUiError?>(null)
 
     private var cloneJob: Job? = null
 
     fun clone(directoryPath: String, url: String, folder: String, cloneSubmodules: Boolean) {
-        cloneJob = tabState.safeProcessingWithoutGit {
+        cloneJob = viewModelScope.launch {
             if (directoryPath.isBlank()) {
-                _error.value = "Invalid empty directory"
-                return@safeProcessingWithoutGit
+                error.value = CloneUiError.EmptyDirectory
+                return@launch
             }
 
             if (url.isBlank()) {
-                _error.value = "Invalid empty URL"
-                return@safeProcessingWithoutGit
+                error.value = CloneUiError.EmptyUrl
+                return@launch
             }
 
             if (folder.isBlank()) {
-                _error.value = "Invalid empty folder name"
-                return@safeProcessingWithoutGit
+                error.value = CloneUiError.EmptyFolderName
+                return@launch
             }
 
             val directory = File(directoryPath)
@@ -67,8 +69,7 @@ class CloneViewModel @Inject constructor(
                 directory.mkdirs()
             }
             if (_saveDirAsDefault.value) {
-                // TODO Fix this
-                // appSettings.defaultCloneDir = directoryPath
+                appSettings.setConfiguration(AppConfig.CloneDefaultDirectory(directoryPath))
             }
 
             val repoDir = File(directory, folder)
@@ -80,7 +81,7 @@ class CloneViewModel @Inject constructor(
                 .flowOn(Dispatchers.IO)
                 .collect { newCloneStatus ->
                     if (newCloneStatus is CloneState.Fail) {
-                        _error.value = newCloneStatus.reason
+                        error.value = CloneUiError.CloneError(newCloneStatus.reason)
                         _cloneState.value = CloneState.None
                     } else {
                         _cloneState.value = newCloneStatus
@@ -89,14 +90,16 @@ class CloneViewModel @Inject constructor(
         }
     }
 
-    fun cancelClone() = tabState.safeProcessingWithoutGit {
-        _cloneState.value = CloneState.Cancelling
-        cloneJob?.cancelAndJoin()
-        _cloneState.value = CloneState.None
+    fun cancelClone() {
+        viewModelScope.launch {
+            _cloneState.value = CloneState.Cancelling
+            cloneJob?.cancelAndJoin()
+            _cloneState.value = CloneState.None
+        }
     }
 
     fun resetStateIfError() {
-        _error.value = ""
+        error.value = null
     }
 
     fun repoName(url: String): String {
@@ -112,7 +115,7 @@ class CloneViewModel @Inject constructor(
     }
 
     fun openDirectoryPicker(): String? {
-        return openFilePickerGitAction(PickerType.DIRECTORIES, null)
+        return openFilePickerUseCase(PickerType.DIRECTORIES, null)
     }
 
     fun onDirectoryPathChanged(directory: TextFieldValue) {
@@ -130,4 +133,11 @@ class CloneViewModel @Inject constructor(
     fun onFolderNameChanged(folderName: TextFieldValue) {
         _folder.value = folderName
     }
+}
+
+sealed interface CloneUiError {
+    data object EmptyDirectory : CloneUiError
+    data object EmptyUrl : CloneUiError
+    data object EmptyFolderName : CloneUiError
+    data class CloneError(val error: AppError) : CloneUiError
 }

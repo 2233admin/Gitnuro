@@ -1,33 +1,29 @@
 package com.jetpackduba.gitnuro.data.git.author
 
-import com.jetpackduba.gitnuro.data.git.jgit
+import com.jetpackduba.gitnuro.data.git.JGit
 import com.jetpackduba.gitnuro.domain.interfaces.ILoadAuthorGitAction
 import com.jetpackduba.gitnuro.domain.models.AuthorInfo
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.eclipse.jgit.api.Git
+import com.jetpackduba.gitnuro.domain.models.Identity
 import org.eclipse.jgit.storage.file.FileBasedConfig
 import javax.inject.Inject
 
-class LoadAuthorGitAction @Inject constructor() : ILoadAuthorGitAction {
-    override suspend operator fun invoke(repositoryPath: String) = jgit(repositoryPath) {
-        val config = repository.config
-        val globalConfig = repository.config.baseConfig
+class LoadAuthorGitAction @Inject constructor(private val jgit: JGit) : ILoadAuthorGitAction {
+    override suspend operator fun invoke(repositoryPath: String) = jgit.provide(repositoryPath) { git ->
+        val config = git.repository.config
+        val globalConfig = git.repository.config.baseConfig
 
-        val repoConfig = FileBasedConfig((config as FileBasedConfig).file, repository.fs)
+        val repoConfig = FileBasedConfig((config as FileBasedConfig).file, git.repository.fs)
         repoConfig.load()
 
-        val globalName = globalConfig.getString("user", null, "name")
-        val globalEmail = globalConfig.getString("user", null, "email")
+        val globalName = globalConfig.getString("user", null, "name")?.trim()
+        val globalEmail = globalConfig.getString("user", null, "email")?.trim()
 
-        val name = repoConfig.getString("user", null, "name")
-        val email = repoConfig.getString("user", null, "email")
+        val name = repoConfig.getString("user", null, "name")?.trim()
+        val email = repoConfig.getString("user", null, "email")?.trim()
 
         AuthorInfo(
-            globalName,
-            globalEmail,
-            name,
-            email,
+            Identity(globalName, globalEmail),
+            Identity(name, email),
         )
     }
 }

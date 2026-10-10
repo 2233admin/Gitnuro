@@ -1,96 +1,48 @@
 package com.jetpackduba.gitnuro.viewmodels
 
+import androidx.compose.runtime.Immutable
 import com.jetpackduba.gitnuro.LogsRepository
 import com.jetpackduba.gitnuro.TabViewModel
 import com.jetpackduba.gitnuro.common.flows.combine
 import com.jetpackduba.gitnuro.common.printError
-import com.jetpackduba.gitnuro.di.qualifiers.AppCoroutineScope
 import com.jetpackduba.gitnuro.domain.models.AppConfig
 import com.jetpackduba.gitnuro.domain.models.AvatarProviderType
-import com.jetpackduba.gitnuro.domain.models.Error
 import com.jetpackduba.gitnuro.domain.models.ProxyType
-import com.jetpackduba.gitnuro.domain.models.TaskType
-import com.jetpackduba.gitnuro.domain.models.newErrorNow
 import com.jetpackduba.gitnuro.domain.models.ui.LinesHeightType
 import com.jetpackduba.gitnuro.domain.models.ui.Theme
 import com.jetpackduba.gitnuro.domain.services.AppSettingsService
-import com.jetpackduba.gitnuro.system.OpenFilePickerGitAction
-import com.jetpackduba.gitnuro.system.PickerType
-import kotlinx.coroutines.CoroutineScope
+import com.jetpackduba.gitnuro.extensions.stateIn
+import com.jetpackduba.gitnuro.system.OpenUrlInBrowserUseCase
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.awt.Desktop
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
-import javax.inject.Singleton
 
 private const val TAG = "SettingsViewModel"
 
-@Singleton
 class SettingsViewModel @Inject constructor(
     private val appSettingsService: AppSettingsService,
-    private val openFilePickerGitAction: OpenFilePickerGitAction,
     private val logsRepository: LogsRepository,
-    @param:AppCoroutineScope private val appScope: CoroutineScope,
+    private val openUrlInBrowserUseCase: OpenUrlInBrowserUseCase,
 ) : TabViewModel() {
     val settingsViewState = settingsState()
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(),
-            initialValue = emptySettingsState()
-        )
+        .stateIn(emptySettingsState())
 
     fun onAction(action: SettingsAction) {
         when (action) {
             is SettingsAction.SetConfig -> setAppConfiguration(action.configuration)
-            SettingsAction.OpenLogsFolder -> TODO() // TODO implement this
+            SettingsAction.OpenLogsFolder -> openLogsFolderInFileExplorer()
         }
     }
 
-    private fun setAppConfiguration(appConfig: AppConfig) = appScope.launch {
+    private fun setAppConfiguration(appConfig: AppConfig) = viewModelScope.launch {
         appSettingsService.setConfiguration(appConfig)
-    }
-
-    fun saveCustomTheme(filePath: String): Error? {
-        return try {
-            //appSettingsService.saveCustomTheme(filePath)
-            null
-        } catch (ex: Exception) {
-            ex.printStackTrace()
-            newErrorNow(
-                TaskType.SaveCustomTheme,
-                ex, // TODO Pass a proper exception with the commented strings
-//                "Saving theme failed",
-//                "Failed to parse selected theme JSON. Please check if it's valid and try again.",
-            )
-        }
-    }
-
-    fun openFileDialog(): String? {
-        return openFilePickerGitAction(PickerType.FILES, null)
     }
 
     fun openLogsFolderInFileExplorer() {
         try {
-            Desktop.getDesktop().open(logsRepository.logsDirectory)
-        } catch (ex: Exception) {
-            printError(TAG, ex.message.orEmpty(), ex)
-        }
-    }
-
-    fun isValidDateFormat(value: String): Boolean {
-        return try {
-            val zoneId = ZoneId.systemDefault()
-            val sdf = DateTimeFormatter.ofPattern(value)
-            sdf.format(Instant.now().atZone(zoneId).toLocalDate())
-            true
-        } catch (ex: Exception) {
-            printError(TAG, "Is valid format date: ${ex.message}", ex)
-            false
+            openUrlInBrowserUseCase(logsRepository.logsDirectory.absolutePath)
+        } catch (e: Exception) {
+            printError(TAG, "Failed to open logs dir: ${e.message.orEmpty()}", e)
         }
     }
 
@@ -208,6 +160,7 @@ class SettingsViewModel @Inject constructor(
     }
 }
 
+@Immutable
 data class SettingsViewState(
     val scaleUi: Float?,
     val theme: Theme,
@@ -237,6 +190,6 @@ data class SettingsViewState(
 )
 
 sealed interface SettingsAction {
-    data class SetConfig(val configuration: AppConfig): SettingsAction
-    data object OpenLogsFolder: SettingsAction
+    data class SetConfig(val configuration: AppConfig) : SettingsAction
+    data object OpenLogsFolder : SettingsAction
 }

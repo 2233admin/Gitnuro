@@ -3,10 +3,13 @@
 package com.jetpackduba.gitnuro.domain.errors
 
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 
 
@@ -103,7 +106,7 @@ suspend inline fun <T, E> handleException(
     crossinline exceptionMapper: suspend (Exception) -> E,
     crossinline callback: suspend EitherContext<E>.() -> T
 ): Either<T, E> {
-    val context = EitherContext<E>()
+    val context = EitherContext<E>(Job())
     return try {
         val res = context.callback()
 
@@ -128,7 +131,7 @@ suspend inline fun <T, E> either(
         callsInPlace(callback, InvocationKind.AT_MOST_ONCE)
     }
 
-    val context = EitherContext<E>()
+    val context = EitherContext<E>(Job())
 
     return try {
         val result = context.callback()
@@ -145,7 +148,7 @@ suspend inline fun <T, E> either(
     return@withContext either(callback)
 }
 
-class EitherContext<E> {
+class EitherContext<E>(override val coroutineContext: CoroutineContext) : CoroutineScope {
     var error: E? = null
 }
 
@@ -190,6 +193,16 @@ suspend inline fun <T, E> T?.raiseErrorIfNull(
         context.raiseError(error)
     } else {
         return this
+    }
+}
+
+fun <T, E> Either<Either<T, E>, E>.flatten(): Either<T, E> {
+    return when (this) {
+        is Either.Err -> Either.Err(this.error)
+        is Either.Ok -> when(val innerValue = this.value) {
+            is Either.Err -> Either.Err(innerValue.error)
+            is Either.Ok -> Either.Ok(innerValue.value)
+        }
     }
 }
 

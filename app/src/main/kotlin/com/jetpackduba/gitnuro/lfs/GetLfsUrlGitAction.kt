@@ -1,9 +1,13 @@
 package com.jetpackduba.gitnuro.lfs
 
 import com.jetpackduba.gitnuro.common.printError
+import com.jetpackduba.gitnuro.data.git.branches.GetCurrentBranchGitAction
+import com.jetpackduba.gitnuro.data.git.branches.GetTrackingBranchGitAction
+import com.jetpackduba.gitnuro.data.git.remotes.GetRemotesGitAction
 import com.jetpackduba.gitnuro.domain.errors.okOrNull
 import com.jetpackduba.gitnuro.domain.extensions.isHttpOrHttps
 import com.jetpackduba.gitnuro.domain.interfaces.IGetCurrentBranchGitAction
+import com.jetpackduba.gitnuro.domain.interfaces.IGetRemotesGitAction
 import com.jetpackduba.gitnuro.domain.interfaces.IGetTrackingBranchGitAction
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.lib.Constants
@@ -15,8 +19,9 @@ import javax.inject.Inject
 private const val TAG = "LfsRepository"
 
 class GetLfsUrlGitAction @Inject constructor(
-    private val getTrackingBranchGitAction: IGetTrackingBranchGitAction,
-    private val getCurrentBranchGitAction: IGetCurrentBranchGitAction,
+    private val getTrackingBranchGitAction: GetTrackingBranchGitAction,
+    private val getCurrentBranchGitAction: GetCurrentBranchGitAction,
+    private val getRemotesGitAction: GetRemotesGitAction,
 ) {
     suspend operator fun invoke(repository: Repository, remoteName: String?): String? {
         val git = Git(repository)
@@ -32,24 +37,41 @@ class GetLfsUrlGitAction @Inject constructor(
     }
 
     private suspend fun getLfsUrlFromRemote(git: Git, remoteName: String?): String? {
+        val repositoryPath = git.repository.directory.absolutePath
+
         val remotePath = if (remoteName != null) {
             remoteName
         } else {
-            val currentBranch = getCurrentBranchGitAction(git).okOrNull() // TODO Proper error handling?
+            val currentBranch = getCurrentBranchGitAction(repositoryPath).okOrNull() // TODO Proper error handling?
 
             if (currentBranch == null) {
                 printError(TAG, "Current branch is null and couldn't obtain tracking branch remote.")
                 return null
             }
 
-            val trackingBranch = getTrackingBranchGitAction(git, currentBranch.name)
+            val trackingBranch =
+                getTrackingBranchGitAction(repositoryPath, currentBranch.name).okOrNull() // TODO Proper error handling?
             val currentBranchTracedRemote = trackingBranch?.remote
 
             if (currentBranchTracedRemote != null) {
                 Constants.R_REMOTES + currentBranchTracedRemote
             } else {
-                printError(TAG, "Remote name is null and couldn't obtain tracking branch remote.")
-                return null
+                val remotes = getRemotesGitAction(repositoryPath).okOrNull().orEmpty()
+
+                return if (remotes.count() == 1) {
+                    val remote = remotes[0].fetchUri.removeSuffix("/")
+                        .let {
+                            if (it.endsWith(".git")) {
+                                it
+                            } else {
+                                "$it.git"
+                            }
+                        }
+                    "$remote/info/lfs"
+                } else {
+                    printError(TAG, "Remote name is null and couldn't obtain tracking branch remote.")
+                    null
+                }
             }
         }
 

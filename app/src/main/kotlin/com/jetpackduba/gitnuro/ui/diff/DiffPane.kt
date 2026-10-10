@@ -26,35 +26,22 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
-import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jetpackduba.gitnuro.extensions.*
 import com.jetpackduba.gitnuro.app.generated.resources.*
 import com.jetpackduba.gitnuro.data.git.animatedImages
 import com.jetpackduba.gitnuro.domain.DiffMatchPatch
-import com.jetpackduba.gitnuro.domain.models.StatusEntry
-import com.jetpackduba.gitnuro.domain.models.StatusType
-import com.jetpackduba.gitnuro.domain.extensions.fileName
-import com.jetpackduba.gitnuro.domain.extensions.filePath
-import com.jetpackduba.gitnuro.domain.extensions.lineDelimiter
-import com.jetpackduba.gitnuro.domain.extensions.parentDirectoryPath
-import com.jetpackduba.gitnuro.domain.extensions.removeLineDelimiters
-import com.jetpackduba.gitnuro.domain.extensions.replaceTabs
-import com.jetpackduba.gitnuro.domain.models.DiffResult
-import com.jetpackduba.gitnuro.domain.models.DiffTextViewType
-import com.jetpackduba.gitnuro.domain.models.DiffType
-import com.jetpackduba.gitnuro.domain.models.EntryContent
-import com.jetpackduba.gitnuro.domain.models.EntryType
-import com.jetpackduba.gitnuro.domain.models.Hunk
-import com.jetpackduba.gitnuro.domain.models.Line
-import com.jetpackduba.gitnuro.domain.models.LineType
-import com.jetpackduba.gitnuro.domain.models.MatchLine
+import com.jetpackduba.gitnuro.domain.extensions.*
+import com.jetpackduba.gitnuro.domain.models.*
 import com.jetpackduba.gitnuro.domain.repositories.CloseableView
+import com.jetpackduba.gitnuro.extensions.handMouseClickable
+import com.jetpackduba.gitnuro.extensions.handOnHover
+import com.jetpackduba.gitnuro.extensions.toStringWithSpaces
+import com.jetpackduba.gitnuro.repositoryopen.RepositoryOpenViewModel
 import com.jetpackduba.gitnuro.theme.*
 import com.jetpackduba.gitnuro.ui.components.PrimaryButton
 import com.jetpackduba.gitnuro.ui.components.ScrollableLazyColumn
@@ -65,16 +52,15 @@ import com.jetpackduba.gitnuro.ui.context_menu.ContextMenuElement
 import com.jetpackduba.gitnuro.ui.context_menu.SelectionAwareTextContextMenu
 import com.jetpackduba.gitnuro.ui.diff.syntax_highlighter.SyntaxHighlighter
 import com.jetpackduba.gitnuro.ui.diff.syntax_highlighter.getSyntaxHighlighterFromExtension
-import com.jetpackduba.gitnuro.domain.models.ViewDiffResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.diff.DiffEntry
-import org.eclipse.jgit.submodule.SubmoduleStatusType
 import org.jetbrains.compose.animatedimage.Blank
 import org.jetbrains.compose.animatedimage.animate
 import org.jetbrains.compose.animatedimage.loadAnimatedImage
 import org.jetbrains.compose.resources.DrawableResource
+import org.jetbrains.compose.resources.decodeToImageBitmap
 import org.jetbrains.compose.resources.painterResource
 import java.io.FileInputStream
 import kotlin.math.max
@@ -92,23 +78,23 @@ private fun <T> loadOrNull(key: Any, action: suspend () -> T?): T? {
 
 @Composable
 fun DiffPane(
-    diffViewModel: DiffViewModel,
+    viewModel: RepositoryOpenViewModel,
     onCloseDiffView: () -> Unit,
 ) {
-    val diffResultState = diffViewModel.diffResult.collectAsState()
-    val textDiffType by diffViewModel.diffTypeFlow.collectAsState(DiffTextViewType.Unified)
-    val isDisplayFullFile by diffViewModel.isDisplayFullFile.collectAsState(false)
+    val diffResultState = viewModel.diffResult.collectAsState()
+    val textDiffType by viewModel.diffTypeFlow.collectAsState(DiffTextViewType.Unified)
+    val isDisplayFullFile by viewModel.isDisplayFullFile.collectAsState(false)
     val viewDiffResult = diffResultState.value ?: return
-    val isRepositoryInSafeState by diffViewModel.isRepositoryInSafeState.collectAsState(false)
+    val isRepositoryInSafeState by viewModel.isRepositoryInSafeState.collectAsState(false)
     val focusRequester = remember { FocusRequester() }
 
     fun closeDiffView() {
-        diffViewModel.clearDiff()
+        viewModel.clearDiff()
         onCloseDiffView()
     }
 
     LaunchedEffect(Unit) {
-        diffViewModel.closeViewFlow.collectLatest {
+        viewModel.closeViewFlow.collectLatest {
             if (it == CloseableView.DIFF) closeDiffView()
         }
     }
@@ -121,7 +107,7 @@ fun DiffPane(
             .focusRequester(focusRequester)
             .onFocusChanged {
                 if (it.isFocused) {
-                    diffViewModel.addToCloseables()
+                    viewModel.addToCloseables()
                 }
             }
     ) {
@@ -142,13 +128,13 @@ fun DiffPane(
                     textDiffViewType = textDiffType,
                     isTextDiff = diffResult is DiffResult.TextDiff,
                     isDisplayFullFile = isDisplayFullFile,
-                    onStageFile = { diffViewModel.stageFile(it) },
-                    onUnstageFile = { diffViewModel.unstageFile(it) },
-                    onChangeDiffType = { diffViewModel.changeTextDiffType(it) },
-                    onDisplayFullFile = { diffViewModel.changeDisplayFullFile(it) },
+                    onStageFile = { viewModel.stageFile(it) },
+                    onUnstageFile = { viewModel.unstageFile(it) },
+                    onChangeDiffType = { viewModel.changeTextDiffType(it) },
+                    onDisplayFullFile = { viewModel.changeDisplayFullFile(it) },
                 )
 
-                val scrollState by diffViewModel.lazyListState.collectAsState()
+                val scrollState by viewModel.lazyListState.collectAsState()
 
                 when (diffResult) {
                     is DiffResult.TextSplit -> HunkSplitTextDiff(
@@ -157,25 +143,25 @@ fun DiffPane(
                         diffResult = diffResult,
                         canUseHunkActions = isRepositoryInSafeState,
                         onUnstageHunk = { entry, hunk ->
-                            diffViewModel.unstageHunk(entry, hunk)
+                            viewModel.unstageHunk(entry, hunk)
                         },
                         onStageHunk = { entry, hunk ->
-                            diffViewModel.stageHunk(entry, hunk)
+                            viewModel.stageHunk(entry, hunk)
                         },
                         onResetHunk = { entry, hunk ->
-                            diffViewModel.resetHunk(entry, hunk)
+                            viewModel.resetHunk(entry, hunk)
                         },
                         onUnStageLine = { entry, hunk, line ->
                             if (diffType is DiffType.UncommittedDiff) {
                                 if (diffType.entryType == EntryType.STAGED)
-                                    diffViewModel.unstageHunkLine(entry, hunk, line)
+                                    viewModel.unstageHunkLine(entry, hunk, line)
                                 else {
-                                    diffViewModel.stageHunkLine(entry, hunk, line)
+                                    viewModel.stageHunkLine(entry, hunk, line)
                                 }
                             }
                         },
                         onDiscardLine = { entry, hunk, line ->
-                            diffViewModel.discardHunkLine(entry, hunk, line)
+                            viewModel.discardHunkLine(entry, hunk, line)
                         }
                     )
 
@@ -185,38 +171,38 @@ fun DiffPane(
                         diffResult = diffResult,
                         canUseHunkActions = isRepositoryInSafeState,
                         onUnstageHunk = { entry, hunk ->
-                            diffViewModel.unstageHunk(entry, hunk)
+                            viewModel.unstageHunk(entry, hunk)
                         },
                         onStageHunk = { entry, hunk ->
-                            diffViewModel.stageHunk(entry, hunk)
+                            viewModel.stageHunk(entry, hunk)
                         },
                         onResetHunk = { entry, hunk ->
-                            diffViewModel.resetHunk(entry, hunk)
+                            viewModel.resetHunk(entry, hunk)
                         },
                         onUnStageLine = { entry, hunk, line ->
                             if (diffType is DiffType.UncommittedDiff) {
                                 if (diffType.entryType == EntryType.STAGED)
-                                    diffViewModel.unstageHunkLine(entry, hunk, line)
+                                    viewModel.unstageHunkLine(entry, hunk, line)
                                 else {
-                                    diffViewModel.stageHunkLine(entry, hunk, line)
+                                    viewModel.stageHunkLine(entry, hunk, line)
                                 }
                             }
                         },
                         onDiscardLine = { entry, hunk, line ->
-                            diffViewModel.discardHunkLine(entry, hunk, line)
+                            viewModel.discardHunkLine(entry, hunk, line)
                         }
                     )
 
                     is DiffResult.NonText -> {
                         NonTextDiff(
                             diffResult,
-                            onOpenFileWithExternalApp = { path -> diffViewModel.openFileWithExternalApp(path) })
+                            onOpenFileWithExternalApp = { path -> viewModel.openFileWithExternalApp(path) })
                     }
 
                     is DiffResult.Submodule -> {
                         SubmoduleDiff(
                             diffResult,
-                            onOpenSubmodule = { diffViewModel.openSubmodule(diffResult.diffEntry.filePath) }
+                            onOpenSubmodule = { viewModel.openSubmodule(diffResult.diffEntry.filePath) }
                         )
                     }
                 }
@@ -224,7 +210,9 @@ fun DiffPane(
 
             is ViewDiffResult.Loading -> {
                 Column {
-                    PathOnlyDiffHeader(filePath = viewDiffResult.diffType.filePath, onCloseDiffView = { closeDiffView() })
+                    PathOnlyDiffHeader(
+                        filePath = viewDiffResult.diffType.filePath,
+                        onCloseDiffView = { closeDiffView() })
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colors.primaryVariant
@@ -335,15 +323,15 @@ fun SubmoduleDiff(diffResult: DiffResult.Submodule, onOpenSubmodule: () -> Unit)
             }
         }
 
-        val submoduleStatus = diffResult.submoduleStatus
+        val submoduleStatus = diffResult.submodule
 
         if (
             submoduleStatus != null &&
             listOf(
-                SubmoduleStatusType.INITIALIZED,
-                SubmoduleStatusType.REV_CHECKED_OUT
-            ).contains(submoduleStatus.type) &&
-            submoduleStatus.indexId == diffResult.diffEntry.newId?.toObjectId()
+                SubmoduleState.INITIALIZED,
+                SubmoduleState.REV_CHECKED_OUT
+            ).contains(submoduleStatus.state) &&
+            submoduleStatus.indexId == diffResult.diffEntry.newId?.toObjectId()?.name
         ) {
             PrimaryButton(
                 modifier = Modifier.padding(top = 8.dp),
@@ -404,7 +392,7 @@ private fun StaticImage(
     LaunchedEffect(tempImagePath) {
         withContext(Dispatchers.IO) {
             FileInputStream(tempImagePath).use { inputStream ->
-                image = loadImageBitmap(inputStream = inputStream)
+                image = inputStream.readAllBytes().decodeToImageBitmap()
             }
         }
     }
@@ -1222,50 +1210,35 @@ fun DiffLineText(line: Line, diffType: DiffType, onActionTriggered: () -> Unit) 
 fun DiffText(text: String, matchLine: MatchLine?, syntaxHighlighter: SyntaxHighlighter) {
     val line = matchLine ?: MatchLine(listOf(DiffMatchPatch.Diff(DiffMatchPatch.Operation.EQUAL, text)))
 
-    Row {
-        val diffContentRemoved = MaterialTheme.colors.diffContentRemoved
-        val diffComment = MaterialTheme.colors.diffComment
-        val diffKeyword = MaterialTheme.colors.diffKeyword
-        val diffAnnotation = MaterialTheme.colors.diffAnnotation
-        val diffContentAdded = MaterialTheme.colors.diffContentAdded
+    val diffContentRemoved = MaterialTheme.colors.diffContentRemoved
+    val diffComment = MaterialTheme.colors.diffComment
+    val diffKeyword = MaterialTheme.colors.diffKeyword
+    val diffAnnotation = MaterialTheme.colors.diffAnnotation
+    val diffContentAdded = MaterialTheme.colors.diffContentAdded
 
-        val annotatedString = remember(line) {
-            formatDiff(
-                line = line,
-                commentColor = diffComment,
-                keywordColor = diffKeyword,
-                annotationColor = diffAnnotation,
-                contentAddedColor = diffContentAdded,
-                contentRemovedColor = diffContentRemoved,
-                syntaxHighlighter = syntaxHighlighter,
-            )
-        }
-
-        Text(
-            text = annotatedString,
-            modifier = Modifier
-                .padding(start = 16.dp)
-                .fillMaxWidth(),
-            fontFamily = notoSansMonoFontFamily,
-            style = MaterialTheme.typography.body2,
-            color = MaterialTheme.colors.onBackground,
-            overflow = TextOverflow.Visible,
-            softWrap = true,
+    val annotatedString = remember(line) {
+        formatDiff(
+            line = line,
+            commentColor = diffComment,
+            keywordColor = diffKeyword,
+            annotationColor = diffAnnotation,
+            contentAddedColor = diffContentAdded,
+            contentRemovedColor = diffContentRemoved,
+            syntaxHighlighter = syntaxHighlighter,
         )
-
-        val lineDelimiter = text.lineDelimiter
-
-        // Display line delimiter in its own text with a maxLines = 1. This will fix the issue
-        // where copying a line didn't contain the line ending & also fix the issue where the text line would
-        // display multiple lines even if there is only a single line with a line delimiter at the end
-        if (lineDelimiter != null) {
-            Text(
-                text = lineDelimiter,
-                maxLines = 1,
-                color = MaterialTheme.colors.onBackground,
-            )
-        }
     }
+
+    Text(
+        text = annotatedString,
+        modifier = Modifier
+            .padding(start = 16.dp)
+            .fillMaxWidth(),
+        fontFamily = monoTypography(),
+        style = MaterialTheme.typography.body2,
+        color = MaterialTheme.colors.onBackground,
+        overflow = TextOverflow.Visible,
+        softWrap = true,
+    )
 }
 
 @Composable
@@ -1274,7 +1247,7 @@ fun LineNumber(text: String, remarked: Boolean) {
         text = text,
         modifier = Modifier
             .padding(start = 8.dp, end = 4.dp),
-        fontFamily = notoSansMonoFontFamily,
+        fontFamily = monoTypography(),
         style = MaterialTheme.typography.body2,
         color = if (remarked) MaterialTheme.colors.onBackground else MaterialTheme.colors.onBackgroundSecondary,
     )

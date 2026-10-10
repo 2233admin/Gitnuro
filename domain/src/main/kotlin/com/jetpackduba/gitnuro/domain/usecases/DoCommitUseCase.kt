@@ -2,41 +2,42 @@ package com.jetpackduba.gitnuro.domain.usecases
 
 import com.jetpackduba.gitnuro.domain.SignOffConstants
 import com.jetpackduba.gitnuro.domain.UseCaseExecutor
+import com.jetpackduba.gitnuro.domain.errors.AppError
+import com.jetpackduba.gitnuro.domain.errors.Either
 import com.jetpackduba.gitnuro.domain.errors.bind
+import com.jetpackduba.gitnuro.domain.errors.onOk
 import com.jetpackduba.gitnuro.domain.interfaces.IDoCommitGitAction
 import com.jetpackduba.gitnuro.domain.interfaces.ILoadSignOffConfigGitAction
+import com.jetpackduba.gitnuro.domain.models.Commit
 import com.jetpackduba.gitnuro.domain.models.Identity
 import com.jetpackduba.gitnuro.domain.models.TaskType
+import kotlinx.coroutines.Deferred
 import javax.inject.Inject
 
 class DoCommitUseCase @Inject constructor(
-    private val refreshStatusUseCase: RefreshStatusUseCase,
-    private val refreshLogUseCase: RefreshLogUseCase,
     private val doCommitGitAction: IDoCommitGitAction,
     private val useCaseExecutor: UseCaseExecutor,
     private val loadSignOffConfigGitAction: ILoadSignOffConfigGitAction,
     private val getAuthorUseCase: GetAuthorUseCase,
+    private val persistCommitMessageUseCase: PersistCommitMessageUseCase,
 ) {
     operator fun invoke(
         message: String,
         amend: Boolean,
         author: Identity?,
-    ) {
-        useCaseExecutor.executeLaunch(
+    ): Deferred<Either<Commit, AppError>> {
+        return useCaseExecutor.executeLaunchAsync(
             taskType = TaskType.DoCommit,
-            onRefresh = {
-                refreshStatusUseCase()
-                refreshLogUseCase()
-            }
+            dataToRefresh = arrayOf(DataToRefresh.STATUS, DataToRefresh.BRANCHES, DataToRefresh.LOG, DataToRefresh.REPO_STATE),
         ) { repositoryPath ->
             val signOffConfig = loadSignOffConfigGitAction(repositoryPath).bind()
 
             val finalMessage = if (signOffConfig.isEnabled) {
-                val authorToSign = author ?: getAuthorUseCase().bind().toIdentity()
+                val authorToSign = author ?: getAuthorUseCase().bind().identityToUse()
 
                 val signature = signOffConfig.format
-                    .replace(SignOffConstants.DEFAULT_SIGN_OFF_FORMAT_USER, authorToSign.name)
-                    .replace(SignOffConstants.DEFAULT_SIGN_OFF_FORMAT_EMAIL, authorToSign.email)
+                    .replace(SignOffConstants.DEFAULT_SIGN_OFF_FORMAT_USER, authorToSign.name.orEmpty())
+                    .replace(SignOffConstants.DEFAULT_SIGN_OFF_FORMAT_EMAIL, authorToSign.email.orEmpty())
 
                 "$message\n\n$signature"
             } else
@@ -44,6 +45,10 @@ class DoCommitUseCase @Inject constructor(
 
 
             doCommitGitAction(repositoryPath, finalMessage, amend, author)
+                .onOk {
+                    persistCommitMessageUseCase(null)
+                }
+
         }
     }
 }

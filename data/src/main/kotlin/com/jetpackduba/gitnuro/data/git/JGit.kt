@@ -1,49 +1,105 @@
 package com.jetpackduba.gitnuro.data.git
 
+import com.jetpackduba.gitnuro.common.extensions.TAG
+import com.jetpackduba.gitnuro.common.printError
 import com.jetpackduba.gitnuro.domain.errors.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.util.FS
+import org.eclipse.jgit.util.FS_Win32
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Provider
+import javax.inject.Singleton
 
-// TODO instead of this, consider creating a pool of (J)Git instances that can be used by different actions of
-//  different tabs or just some state holder with it
-suspend fun <T> jgit(
-    path: String,
-    errorHandle: ((Exception) -> GitError)? = null,
-    block: suspend Git.(Git) -> T,
-): Either<T, GitError> {
-    return withContext(Dispatchers.IO) {
-        try {
-            val result = Git
-                .open(File(path))
-                .run {
-                    block(this)
+@Singleton
+class JGit @Inject constructor(
+    private val windowsFs: Provider<WindowsFs>,
+) {
+    private val repositories = mutableMapOf<String, Git>()
+
+    suspend fun <T> provide(
+        repositoryPath: String,
+        errorHandle: ((Exception) -> GitError)? = null,
+        block: suspend EitherContext<GitError>.(Git) -> T,
+    ) = either<T, GitError> {
+        val cachedGit: Git? = repositories[repositoryPath]
+
+        val git = if (cachedGit == null) {
+            val newGit = handleException(
+                exceptionMapper = { RepositoryReadError(it.message.orEmpty()) }
+            ) {
+                val fs = FS.detect()
+
+                val fsToUse = if (fs is FS_Win32) {
+                    windowsFs.get()
+                } else {
+                    fs
                 }
 
+                Git
+                    .open(File(repositoryPath), fsToUse)
+            }.bind()
 
-            Either.Ok(result)
-        } catch (ex: Exception) {
-            val error = errorHandle?.invoke(ex) ?: GenericError(ex.message.orEmpty())
-            Either.Err(error)
+            repositories[repositoryPath] = newGit
+            newGit
+        } else {
+            cachedGit
         }
-    }
-}
 
-suspend fun <T> jgit2(
-    path: String,
-    errorHandle: ((Exception) -> GitError)? = null,
-    block: suspend EitherContext<GitError>.(Git) -> T,
-): Either<T, GitError> {
-    return either(Dispatchers.IO) {
         try {
-            val result = Git
-                .open(File(path))
-
-            Either.Ok(this.block(result))
+            Either.Ok(block(git))
         } catch (ex: Exception) {
-            val error = errorHandle?.invoke(ex) ?: GenericError(ex.message.orEmpty())
+            val error = errorHandle?.invoke(ex) ?: GenericError(ex.message.orEmpty(), ex)
+            Either.Err(error)
+        } finally {
+//            git.close()
+        }
+    }
+
+    suspend fun <T> provideOptional(
+        repositoryPath: String?,
+        errorHandle: ((Exception) -> GitError)? = null,
+        block: suspend EitherContext<GitError>.(Git?) -> T,
+    ) = either<T, GitError> {
+
+        val git = if (repositoryPath != null) {
+            val cachedGit = repositories[repositoryPath]
+
+            if (cachedGit == null) {
+                val newGit = handleException(
+                    exceptionMapper = { RepositoryReadError(it.message.orEmpty()) }
+                ) {
+                    Git
+                        .open(File(repositoryPath))
+                }.bind()
+
+                repositories[repositoryPath] = newGit
+                newGit
+            } else {
+                cachedGit
+            }
+        } else {
+            null
+        }
+
+        try {
+            Either.Ok(block(git))
+        } catch (ex: Exception) {
+            val error = errorHandle?.invoke(ex) ?: GenericError(ex.message.orEmpty(), ex)
             Either.Err(error)
         }
     }
+
+    fun cleanupExcept(repositoriesToKeep: Set<String>) {
+        val repositoriesToRemove = repositories.keys - repositoriesToKeep
+
+        for (repo in repositoriesToRemove) {
+            try {
+                repositories.remove(repo)?.close()
+            } catch (ex: Exception) {
+                printError(TAG, "Failed to cleanup $repo from memory: ${ex.message}")
+            }
+        }
+    }
 }
+

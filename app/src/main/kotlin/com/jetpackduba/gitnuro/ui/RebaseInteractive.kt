@@ -19,68 +19,63 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jetpackduba.gitnuro.extensions.backgroundIf
 import com.jetpackduba.gitnuro.app.generated.resources.*
+import com.jetpackduba.gitnuro.domain.models.RebaseInteractiveState
+import com.jetpackduba.gitnuro.domain.models.RebaseLine
 import com.jetpackduba.gitnuro.domain.models.ui.SelectedItem
+import com.jetpackduba.gitnuro.domain.repositories.DataState
+import com.jetpackduba.gitnuro.extensions.backgroundIf
+import com.jetpackduba.gitnuro.repositoryopen.RepositoryOpenViewModel
 import com.jetpackduba.gitnuro.theme.backgroundSelected
 import com.jetpackduba.gitnuro.theme.onBackgroundSecondary
 import com.jetpackduba.gitnuro.ui.components.AdjustableOutlinedTextField
 import com.jetpackduba.gitnuro.ui.components.PrimaryButton
 import com.jetpackduba.gitnuro.ui.components.ScrollableLazyColumn
+import com.jetpackduba.gitnuro.ui.context_menu.ContextMenuElement
+import com.jetpackduba.gitnuro.ui.context_menu.DropDownMenu
+import com.jetpackduba.gitnuro.ui.context_menu.DropDownMenuText
 import com.jetpackduba.gitnuro.ui.drag_sorting.VerticalDraggableItem
 import com.jetpackduba.gitnuro.ui.drag_sorting.rememberVerticalDragDropState
 import com.jetpackduba.gitnuro.ui.drag_sorting.verticalDragContainer
 import com.jetpackduba.gitnuro.viewmodels.RebaseAction
-import com.jetpackduba.gitnuro.viewmodels.RebaseInteractiveViewModel
-import com.jetpackduba.gitnuro.viewmodels.RebaseInteractiveViewState
-import com.jetpackduba.gitnuro.viewmodels.RebaseLine
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun RebaseInteractive(
-    rebaseInteractiveViewModel: RebaseInteractiveViewModel,
+    viewModel: RepositoryOpenViewModel,
+    state: RebaseInteractiveState,
 ) {
-    val rebaseState = rebaseInteractiveViewModel.rebaseState.collectAsState()
-    val rebaseStateValue = rebaseState.value
-    val selectedItem = rebaseInteractiveViewModel.selectedItem.collectAsState().value
-
-    LaunchedEffect(rebaseInteractiveViewModel) {
-        rebaseInteractiveViewModel.loadRebaseInteractiveData()
-    }
+    val selectedItem = viewModel.selectedItem.collectAsState().value
 
     Box(
         modifier = Modifier
             .background(MaterialTheme.colors.surface)
             .fillMaxSize(),
     ) {
-        when (rebaseStateValue) {
-            is RebaseInteractiveViewState.Failed -> {}
-            is RebaseInteractiveViewState.Loaded -> {
-                RebaseStateLoaded(
-                    rebaseInteractiveViewModel,
-                    rebaseStateValue,
-                    selectedItem,
-                    onFocusLine = {
-                        if (
-                            selectedItem !is SelectedItem.Commit ||
-                            !selectedItem.commit.hash.startsWith(it.commit.name())
-                        ) {
-                            rebaseInteractiveViewModel.selectLine(it)
-                        }
-                    },
-                    onCancel = {
-                        rebaseInteractiveViewModel.cancel()
-                    },
-                    onMoveCommit = { from, to ->
-                        rebaseInteractiveViewModel.moveCommit(from, to)
+        when (state) {
+            is RebaseInteractiveState.AwaitingInteraction -> RebaseStateLoaded(
+                viewModel,
+                state.data,
+                selectedItem,
+                onFocusLine = {
+                    if (
+                        selectedItem !is SelectedItem.CommitItem ||
+                        !selectedItem.commit.hash.startsWith(it.commit)
+                    ) {
+                        viewModel.selectLine(it)
                     }
-                )
-            }
+                },
+                onCancel = {
+                    viewModel.cancel()
+                },
+                onMoveCommit = { from, to ->
+                    viewModel.moveCommit(from, to)
+                }
+            )
 
-            RebaseInteractiveViewState.Loading -> {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            }
+            DataState.Loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            is RebaseInteractiveState.ProcessingCommits, RebaseInteractiveState.None -> {}
         }
     }
 }
@@ -88,15 +83,13 @@ fun RebaseInteractive(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RebaseStateLoaded(
-    rebaseInteractiveViewModel: RebaseInteractiveViewModel,
-    rebaseState: RebaseInteractiveViewState.Loaded,
+    viewModel: RepositoryOpenViewModel,
+    stepsList: List<RebaseLine>,
     selectedItem: SelectedItem,
     onFocusLine: (RebaseLine) -> Unit,
     onCancel: () -> Unit,
     onMoveCommit: (from: Int, to: Int) -> Unit,
 ) {
-    val stepsList = rebaseState.stepsList
-
     Column(
         modifier = Modifier.fillMaxSize()
             .clip(RoundedCornerShape(4.dp))
@@ -130,17 +123,16 @@ fun RebaseStateLoaded(
                 VerticalDraggableItem(state, index) {
                     RebaseCommit(
                         rebaseLine = rebaseTodoLine,
-                        message = rebaseState.messages[rebaseTodoLine.commit.name()],
-                        isSelected = selectedItem is SelectedItem.Commit && selectedItem.commit.hash.startsWith(
-                            rebaseTodoLine.commit.name()
+                        isSelected = selectedItem is SelectedItem.CommitItem && selectedItem.commit.hash.startsWith(
+                            rebaseTodoLine.commit
                         ),
                         isFirst = stepsList.first() == rebaseTodoLine,
                         onFocusLine = { onFocusLine(rebaseTodoLine) },
                         onActionChanged = { newAction ->
-                            rebaseInteractiveViewModel.onCommitActionChanged(rebaseTodoLine.commit, newAction)
+                            viewModel.onCommitActionChanged(rebaseTodoLine.commit, newAction)
                         },
                         onMessageChanged = { newMessage ->
-                            rebaseInteractiveViewModel.onCommitMessageChanged(rebaseTodoLine.commit, newMessage)
+                            viewModel.onCommitMessageChanged(rebaseTodoLine, newMessage)
                         },
                     )
                 }
@@ -165,7 +157,7 @@ fun RebaseStateLoaded(
                 modifier = Modifier.padding(end = 16.dp),
                 enabled = true, // TODO Moving commits may also affect stepsList.any { it.rebaseAction != RebaseAction.PICK },
                 onClick = {
-                    rebaseInteractiveViewModel.continueRebaseInteractive()
+                    viewModel.continueRebaseInteractive()
                 },
                 text = stringResource(Res.string.rebase_interactive_view_button_complete_rebase)
             )
@@ -178,19 +170,22 @@ fun RebaseCommit(
     rebaseLine: RebaseLine,
     isFirst: Boolean,
     isSelected: Boolean,
-    message: String?,
     onFocusLine: () -> Unit,
-    onActionChanged: (RebaseAction) -> Unit,
+    onActionChanged: (RebaseLine.Action) -> Unit,
     onMessageChanged: (String) -> Unit,
 ) {
-    val action = rebaseLine.rebaseAction
+    val action = rebaseLine.action
     val focusRequester = remember { FocusRequester() }
 
-    var newMessage by remember(rebaseLine.commit.name(), action) {
-        if (action == RebaseAction.REWORD) {
-            mutableStateOf(message ?: rebaseLine.shortMessage) /* if reword, use the value from the map (if possible)*/
-        } else
-            mutableStateOf(rebaseLine.shortMessage) // If it's not reword, use the original shortMessage
+
+    var newMessage by remember(rebaseLine.commit, action) {
+        val message = if (rebaseLine.action == RebaseLine.Action.REWORD && rebaseLine.modifiedMessage != null) {
+            rebaseLine.modifiedMessage.orEmpty()
+        } else {
+            rebaseLine.fullMessage
+        }
+
+        mutableStateOf(message)
     }
 
     Row(
@@ -208,7 +203,7 @@ fun RebaseCommit(
             action,
             isFirst = isFirst,
             onActionDropDownClicked = onFocusLine,
-            onActionChanged = onActionChanged,
+            onActionChanged = { onActionChanged(it) },
         )
 
         AdjustableOutlinedTextField(
@@ -222,14 +217,14 @@ fun RebaseCommit(
                         onFocusLine()
                     }
                 },
-            enabled = action == RebaseAction.REWORD,
+            enabled = action == RebaseLine.Action.REWORD,
             value = newMessage,
             onValueChange = {
                 newMessage = it
                 onMessageChanged(it)
             },
             textStyle = MaterialTheme.typography.body2,
-            backgroundColor = if (action == RebaseAction.REWORD) {
+            backgroundColor = if (action == RebaseLine.Action.REWORD) {
                 MaterialTheme.colors.background
             } else
                 MaterialTheme.colors.surface
@@ -240,10 +235,10 @@ fun RebaseCommit(
 
 @Composable
 fun ActionDropdown(
-    action: RebaseAction,
+    action: RebaseLine.Action,
     isFirst: Boolean,
     onActionDropDownClicked: () -> Unit,
-    onActionChanged: (RebaseAction) -> Unit,
+    onActionChanged: (RebaseLine.Action) -> Unit,
 ) {
     var showDropDownMenu by remember { mutableStateOf(false) }
     Box(
@@ -264,45 +259,41 @@ fun ActionDropdown(
                 .height(40.dp),
         ) {
             Text(
-                action.displayName,
+                getActionDisplayName(action),
                 color = MaterialTheme.colors.onBackground,
                 style = MaterialTheme.typography.body1,
                 modifier = Modifier.weight(1f)
             )
-
-            Icon(
-                painterResource(Res.drawable.expand_more),
-                contentDescription = null,
-                modifier = Modifier
-                    .size(20.dp),
-                tint = MaterialTheme.colors.onBackground,
-            )
         }
 
-        DropdownMenu(
-            expanded = showDropDownMenu,
-            onDismissRequest = { showDropDownMenu = false },
-        ) {
-            val dropDownItems = if (isFirst) {
-                firstItemActions
-            } else {
-                actions
-            }
+        val dropDownItems = if (isFirst) {
+            firstItemActions
+        } else {
+            actions
+        }
 
-            for (dropDownOption in dropDownItems) {
-                DropdownMenuItem(
-                    onClick = {
-                        showDropDownMenu = false
-                        onActionChanged(dropDownOption)
-                    }
-                ) {
-                    Text(
-                        text = dropDownOption.displayName,
-                        style = MaterialTheme.typography.body1,
-                    )
+
+        DropDownMenuText(
+            showIcons = false,
+            currentValue = getActionDisplayName(action),
+            items = {
+                dropDownItems.map {
+                    ContextMenuElement.ContextTextEntry(it.displayName, onClick = { onActionChanged(it.value) })
                 }
             }
-        }
+        )
+    }
+}
+
+fun getActionDisplayName(action: RebaseLine.Action): String {
+    return when (action) {
+        RebaseLine.Action.PICK -> "Pick"
+        RebaseLine.Action.REWORD -> "Reword"
+        RebaseLine.Action.SQUASH -> "Squash"
+        RebaseLine.Action.FIXUP -> "Fixup"
+        RebaseLine.Action.EDIT -> "Edit"
+        RebaseLine.Action.DROP -> "Drop"
+        RebaseLine.Action.COMMENT -> "Comment"
     }
 }
 

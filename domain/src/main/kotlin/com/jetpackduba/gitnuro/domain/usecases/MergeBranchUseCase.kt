@@ -19,18 +19,15 @@ class MergeBranchUseCase @Inject constructor(
     private val appSettingsService: AppSettingsService,
     private val checkHasUncommittedChangesGitAction: ICheckHasUncommittedChangesGitAction,
     private val useCaseExecutor: UseCaseExecutor,
-    private val refreshAllUseCase: RefreshAllUseCase,
     private val deleteStashGitAction: IDeleteStashGitAction,
     private val createSnapshotStashGitAction: ICreateSnapshotStashGitAction,
 ) {
 
-    operator fun invoke(branch: Branch) {
+    operator fun invoke(branch: Branch, automaticStashDescription: String) {
         useCaseExecutor.executeLaunch(
             TaskType.MergeBranch,
             refreshEvenIfFailed = true,
-            onRefresh = {
-                refreshAllUseCase()
-            }
+            dataToRefresh = arrayOf(DataToRefresh.ALL),
         ) { repositoryPath ->
             val mergeAutoStash = appSettingsService.autoStashOnMerge.first()
             val fastForwardMerge = appSettingsService.fastForwardMerge.first()
@@ -41,7 +38,7 @@ class MergeBranchUseCase @Inject constructor(
                 if (hasUncommitedChanges) {
                     backupStash = createSnapshotStashGitAction(
                         repositoryPath,
-                        message = "TMP MESSAGE",
+                        message = automaticStashDescription,
                         includeUntracked = true
                     ).bind()
                 }

@@ -2,12 +2,8 @@ package com.jetpackduba.gitnuro.ui.context_menu
 
 import com.jetpackduba.gitnuro.app.generated.resources.*
 import com.jetpackduba.gitnuro.domain.models.Branch
-import com.jetpackduba.gitnuro.domain.models.Notification
-import com.jetpackduba.gitnuro.domain.models.positiveNotification
-import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-import org.jetbrains.skiko.ClipboardManager
 
 fun branchContextMenuItems(
     branch: Branch,
@@ -51,8 +47,8 @@ fun branchContextMenuItems(
                 composableLabel = {
                     stringResource(
                         Res.string.branch_context_menu_push_current_to_target,
-                        currentBranch.name,
-                        branch.name,
+                        currentBranch.simpleName,
+                        branch.simpleNameWithRemote,
                     )
                 },
                 onClick = onPushToRemoteBranch
@@ -61,8 +57,8 @@ fun branchContextMenuItems(
                 composableLabel = {
                     stringResource(
                         Res.string.branch_context_menu_pull_target_to_current,
-                        branch.name,
-                        currentBranch.name,
+                        branch.simpleNameWithRemote,
+                        currentBranch.simpleName,
                     )
                 },
                 onClick = onPullFromRemoteBranch,
@@ -114,13 +110,4 @@ fun branchContextMenuItems(
             }
         )
     }
-}
-
-internal suspend fun copyBranchNameToClipboardAndGetNotification(
-    branch: Branch,
-    clipboardManager: ClipboardManager,
-): Notification {
-    val branchName = branch.simpleName
-    clipboardManager.setText(branchName)
-    return positiveNotification(getString(Res.string.notification_copied_branch_to_clipboard, branchName))
 }

@@ -17,9 +17,9 @@ import com.jetpackduba.gitnuro.app.generated.resources.Res
 import com.jetpackduba.gitnuro.app.generated.resources.error
 import com.jetpackduba.gitnuro.app.generated.resources.info
 import com.jetpackduba.gitnuro.app.generated.resources.warning
-import com.jetpackduba.gitnuro.domain.models.MessageType
-import com.jetpackduba.gitnuro.domain.models.Notification
+import com.jetpackduba.gitnuro.domain.models.NotificationData
 import com.jetpackduba.gitnuro.domain.models.NotificationType
+import com.jetpackduba.gitnuro.domain.repositories.CompletedTask
 import com.jetpackduba.gitnuro.theme.AppTheme
 import org.jetbrains.compose.resources.painterResource
 
@@ -28,12 +28,14 @@ import org.jetbrains.compose.resources.painterResource
 @Composable
 fun NotificationSuccessPreview() {
     AppTheme(customTheme = null) {
-        Notification(NotificationType.Positive, MessageType.Generic("Hello world!"))
+        Notification(
+            NotificationData(NotificationType.Positive, "Hello world!")
+        )
     }
 }
 
 @Composable
-fun Notification(notification: Notification) {
+fun Notification(data: NotificationData) {
     val notificationShape = RoundedCornerShape(8.dp)
 
     Row(
@@ -47,21 +49,21 @@ fun Notification(notification: Notification) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        val backgroundColor = when (notification.type) {
-            NotificationType.Positive -> MaterialTheme.colors.primary
+        val backgroundColor = when (data.type) {
             NotificationType.Warning -> MaterialTheme.colors.secondary
+            NotificationType.Positive -> MaterialTheme.colors.primary
             NotificationType.Error -> MaterialTheme.colors.error
         }
 
-        val contentColor = when (notification.type) {
-            NotificationType.Positive -> MaterialTheme.colors.onPrimary
+        val contentColor = when (data.type) {
             NotificationType.Warning -> MaterialTheme.colors.onSecondary
+            NotificationType.Positive -> MaterialTheme.colors.onPrimary
             NotificationType.Error -> MaterialTheme.colors.onError
         }
 
-        val icon = when (notification.type) {
-            NotificationType.Positive -> Res.drawable.info
+        val icon = when (data.type) {
             NotificationType.Warning -> Res.drawable.warning
+            NotificationType.Positive -> Res.drawable.info
             NotificationType.Error -> Res.drawable.error
         }
 
@@ -87,7 +89,7 @@ fun Notification(notification: Notification) {
             contentAlignment = Alignment.CenterStart,
         ) {
             Text(
-                text = notification.toString(), // TODO Fix this
+                text = data.content,
                 modifier = Modifier,
                 color = MaterialTheme.colors.onBackground,
                 style = MaterialTheme.typography.body1,

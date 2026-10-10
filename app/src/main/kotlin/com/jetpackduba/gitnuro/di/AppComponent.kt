@@ -9,13 +9,12 @@ import javax.inject.Singleton
 @Singleton
 @Component(
     modules = [
-        AppModule::class,
         ShellModule::class,
         NetworkModule::class,
         GitCredentialsManagerModule::class,
         RepositoriesModule::class,
         DatastoreModule::class,
-        GitActionsModule::class,
+        ServicesModule::class,
     ]
 )
 interface AppComponent {

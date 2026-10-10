@@ -1,11 +1,15 @@
 package com.jetpackduba.gitnuro.domain.usecases
 
+import com.jetpackduba.gitnuro.domain.UseCaseExecutor
 import com.jetpackduba.gitnuro.domain.interfaces.IGetFileCommitsAction
-import org.eclipse.jgit.api.Git
 import javax.inject.Inject
 
 class GetFileCommitsUseCase @Inject constructor(
     private val getFileCommitsAction: IGetFileCommitsAction,
+    private val useCaseExecutor: UseCaseExecutor,
 ) {
-    suspend operator fun invoke(git: Git, filePath: String) = getFileCommitsAction(git, filePath)
+    suspend operator fun invoke(filePath: String) = useCaseExecutor.execute(
+    ) { repositoryPath ->
+        getFileCommitsAction(repositoryPath, filePath)
+    }
 }

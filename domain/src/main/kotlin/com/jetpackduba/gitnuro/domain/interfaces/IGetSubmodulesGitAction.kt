@@ -1,8 +1,9 @@
 package com.jetpackduba.gitnuro.domain.interfaces
 
-import org.eclipse.jgit.api.Git
-import org.eclipse.jgit.submodule.SubmoduleStatus
+import com.jetpackduba.gitnuro.domain.errors.Either
+import com.jetpackduba.gitnuro.domain.errors.GitError
+import com.jetpackduba.gitnuro.domain.models.Submodule
 
 interface IGetSubmodulesGitAction {
-    suspend operator fun invoke(git: Git): Map<String, SubmoduleStatus>
+    suspend operator fun invoke(repositoryPath: String): Either<Map<String, Submodule>, GitError>
 }

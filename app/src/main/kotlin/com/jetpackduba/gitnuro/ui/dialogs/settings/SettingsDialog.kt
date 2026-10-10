@@ -1,9 +1,7 @@
 package com.jetpackduba.gitnuro.ui.dialogs.settings
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.Icon
 import androidx.compose.material.LocalTextStyle
@@ -12,37 +10,40 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.jetpackduba.gitnuro.extensions.handMouseClickable
-import com.jetpackduba.gitnuro.extensions.handOnHover
-import com.jetpackduba.gitnuro.extensions.toSmartSystemString
 import com.jetpackduba.gitnuro.app.generated.resources.*
+import com.jetpackduba.gitnuro.common.printError
 import com.jetpackduba.gitnuro.domain.models.AppConfig
-import com.jetpackduba.gitnuro.domain.models.Error
 import com.jetpackduba.gitnuro.domain.models.AvatarProviderType
+import com.jetpackduba.gitnuro.domain.models.Error
 import com.jetpackduba.gitnuro.domain.models.ProxyType
 import com.jetpackduba.gitnuro.domain.models.ui.LinesHeightType
 import com.jetpackduba.gitnuro.domain.models.ui.Theme
-import com.jetpackduba.gitnuro.theme.*
+import com.jetpackduba.gitnuro.extensions.handMouseClickable
+import com.jetpackduba.gitnuro.extensions.toSmartSystemString
+import com.jetpackduba.gitnuro.theme.backgroundSelected
+import com.jetpackduba.gitnuro.theme.onBackgroundSecondary
+import com.jetpackduba.gitnuro.theme.outlinedTextFieldColors
+import com.jetpackduba.gitnuro.theme.themeLists
 import com.jetpackduba.gitnuro.ui.components.AdjustableOutlinedTextField
 import com.jetpackduba.gitnuro.ui.components.AppSwitch
 import com.jetpackduba.gitnuro.ui.components.PrimaryButton
 import com.jetpackduba.gitnuro.ui.components.ScrollableColumn
 import com.jetpackduba.gitnuro.ui.context_menu.ContextMenuElement
-import com.jetpackduba.gitnuro.ui.context_menu.DropDownMenu
+import com.jetpackduba.gitnuro.ui.context_menu.DropDownMenuText
 import com.jetpackduba.gitnuro.ui.dialogs.base.MaterialDialog
-import com.jetpackduba.gitnuro.ui.dialogs.errors.ErrorDialog
 import com.jetpackduba.gitnuro.ui.dropdowns.DropDownOption
 import com.jetpackduba.gitnuro.viewmodels.SettingsAction
 import com.jetpackduba.gitnuro.viewmodels.SettingsViewModel
 import com.jetpackduba.gitnuro.viewmodels.SettingsViewState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.DrawableResource
@@ -50,6 +51,11 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlin.time.Duration.Companion.seconds
+
+private const val TAG = "SettingsDialog"
 
 sealed interface SettingsEntry {
     data class Section(val name: StringResource) : SettingsEntry
@@ -318,7 +324,7 @@ private fun Entry(icon: DrawableResource, name: String, isSelected: Boolean, onC
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .background(color = backgroundColor)
-            .handMouseClickable(onClick)
+            .handMouseClickable(onClick = onClick)
             .fillMaxWidth(),
     ) {
         Icon(
@@ -486,7 +492,9 @@ private fun Layout(settingsViewState: SettingsViewState, onAction: (SettingsActi
 @Composable
 private fun DateTime(settingsViewState: SettingsViewState, onAction: (SettingsAction) -> Unit) {
     val useDefault = settingsViewState.dateFormatUseDefault
-    val customFormat = settingsViewState.dateFormatCustomFormat
+    var customFormat by remember(settingsViewState.dateFormatCustomFormat) {
+        mutableStateOf(settingsViewState.dateFormatCustomFormat)
+    }
     val is24h = settingsViewState.dateFormatIs24h
     val useRelative = settingsViewState.dateFormatUseRelative
 
@@ -520,15 +528,13 @@ private fun DateTime(settingsViewState: SettingsViewState, onAction: (SettingsAc
         value = customFormat,
         isError = isError,
         onValueChanged = { value ->
-            /*TODO
             customFormat = value
-            if (settingsViewModel.isValidDateFormat(value)) {
-                settingsViewModel.dateFormat = dateFormat.copy(customFormat = value)
+            if (isValidDateFormat(value)) {
+                onAction(SettingsAction.SetConfig(AppConfig.DateFormatCustomFormat(value)))
                 isError = false
             } else {
                 isError = true
             }
-            */
         },
         enabled = !useDefault,
     )
@@ -562,6 +568,7 @@ private fun DateTime(settingsViewState: SettingsViewState, onAction: (SettingsAc
 @Composable
 private fun Appearance(settingsViewState: SettingsViewState, onAction: (SettingsAction) -> Unit) {
     val currentTheme = settingsViewState.theme
+    val customTheme = settingsViewState.customTheme
     val currentLinesHeightType = settingsViewState.linesHeightType
     val avatarProvider = settingsViewState.avatarProvider
     val (errorToDisplay, setErrorToDisplay) = remember { mutableStateOf<Error?>(null) }
@@ -577,24 +584,27 @@ private fun Appearance(settingsViewState: SettingsViewState, onAction: (Settings
     )
 
     if (currentTheme == Theme.Custom) {
-        SettingButton(
+        val scope = rememberCoroutineScope()
+        var themeJson by remember { mutableStateOf(customTheme.orEmpty()) }
+        var themeJob: Job? = null
+
+        SettingTextInput(
             title = "Custom theme",
-            subtitle = "Select a JSON file to load the custom theme",
-            buttonText = "Open file",
-            onClick = {
-                /*TODO
-                val filePath = settingsViewModel.openFileDialog()
+            subtitle = "Add a JSON to load the custom theme",
+            value = themeJson,
+            singleLine = false,
+            onValueChanged = { value ->
+                themeJson = value
 
-                if (filePath != null) {
-                    val error = settingsViewModel.saveCustomTheme(filePath)
+                themeJob?.cancel()
 
-                    // We check if it's null because setting errorToDisplay to null could possibly hide
-                    // other errors that are being displayed
-                    if (error != null) {
-                        setErrorToDisplay(error)
-                    }
-                }*/
-            }
+                themeJob = scope.launch {
+                    delay(1.seconds)
+                    onAction(SettingsAction.SetConfig(AppConfig.CustomTheme(value)))
+                }
+
+            },
+            fieldHeight = 120.dp
         )
     }
 
@@ -667,10 +677,11 @@ private fun Appearance(settingsViewState: SettingsViewState, onAction: (Settings
     )
 
     if (errorToDisplay != null) {
-        ErrorDialog(
-            errorToDisplay,
-            onAccept = { setErrorToDisplay(null) }
-        )
+        /* TODO restore this
+              ErrorDialog(
+               errorToDisplay,
+               onAccept = { setErrorToDisplay(null) }
+           )*/
     }
 }
 
@@ -691,44 +702,15 @@ fun <T> SettingDropDown(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        Box {
-            DropDownMenu(
-                showIcons = false,
-                items = {
-                    dropDownOptions.map {
-                        ContextMenuElement.ContextTextEntry(it.optionName, onClick = { onOptionSelected(it) })
-                    }
-                },
-            ) {
-                Row(
-                    modifier = Modifier.width(180.dp)
-                        .border(
-                            width = 2.dp,
-                            color = MaterialTheme.colors.onBackground.copy(alpha = 0.1F),
-                            shape = RoundedCornerShape(4.dp),
-                        )
-                        .clip(shape = RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colors.background)
-                        .padding(vertical = 8.dp, horizontal = 12.dp)
-                        .handOnHover(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = dropDownOptions.first { it.value == currentOption }.optionName,
-                        style = MaterialTheme.typography.body2,
-                        color = MaterialTheme.colors.onBackground,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1
-                    )
-
-                    Icon(
-                        painter = painterResource(Res.drawable.dropdown),
-                        contentDescription = null,
-                        tint = MaterialTheme.colors.onBackground,
-                    )
+        DropDownMenuText(
+            showIcons = false,
+            currentValue = dropDownOptions.first { it.value == currentOption }.optionName,
+            items = {
+                dropDownOptions.map {
+                    ContextMenuElement.ContextTextEntry(it.optionName, onClick = { onOptionSelected(it) })
                 }
-            }
-        }
+            },
+        )
     }
 }
 
@@ -839,10 +821,12 @@ fun SettingTextInput(
     isPassword: Boolean = false,
     onValueChanged: (String) -> Unit,
     isError: Boolean = false,
+    fieldHeight: Dp? = null,
+    singleLine: Boolean = true,
 ) {
     Row(
         modifier = Modifier.padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
     ) {
         FieldTitles(title, subtitle, enabled)
 
@@ -854,7 +838,15 @@ fun SettingTextInput(
 
         AdjustableOutlinedTextField(
             value = text,
-            modifier = Modifier.width(240.dp),
+            modifier = Modifier
+                .width(240.dp)
+                .run {
+                    if (fieldHeight != null) {
+                        this.height(fieldHeight)
+                    } else {
+                        this
+                    }
+                },
             isError = isError,
             enabled = enabled,
             onValueChange = {
@@ -863,7 +855,7 @@ fun SettingTextInput(
             },
             visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
             colors = outlinedTextFieldColors(),
-            singleLine = true,
+            singleLine = singleLine,
         )
     }
 }
@@ -911,3 +903,14 @@ private fun isValidFloat(value: String): Boolean {
     }
 }
 
+fun isValidDateFormat(value: String): Boolean {
+    return try {
+        val zoneId = ZoneId.systemDefault()
+        val sdf = DateTimeFormatter.ofPattern(value)
+        sdf.format(Instant.now().atZone(zoneId).toLocalDate())
+        true
+    } catch (ex: Exception) {
+        printError(TAG, "Is valid format date: ${ex.message}", ex)
+        false
+    }
+}

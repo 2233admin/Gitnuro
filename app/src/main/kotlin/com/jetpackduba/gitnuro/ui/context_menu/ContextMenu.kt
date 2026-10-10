@@ -3,6 +3,7 @@ package com.jetpackduba.gitnuro.ui.context_menu
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextContextMenu
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.Icon
@@ -13,13 +14,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.InputModeManager
 import androidx.compose.ui.input.key.*
@@ -34,11 +38,9 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.rememberPopupPositionProviderAtPosition
+import com.jetpackduba.gitnuro.app.generated.resources.*
 import com.jetpackduba.gitnuro.extensions.handMouseClickable
-import com.jetpackduba.gitnuro.app.generated.resources.Res
-import com.jetpackduba.gitnuro.app.generated.resources.copy
-import com.jetpackduba.gitnuro.app.generated.resources.cut
-import com.jetpackduba.gitnuro.app.generated.resources.paste
+import com.jetpackduba.gitnuro.extensions.handOnHover
 import com.jetpackduba.gitnuro.keybindings.KeybindingOption
 import com.jetpackduba.gitnuro.keybindings.matchesBinding
 import com.jetpackduba.gitnuro.theme.isDark
@@ -58,13 +60,57 @@ fun ContextMenu(enabled: Boolean = true, items: () -> List<ContextMenuElement>, 
 }
 
 @Composable
-fun DropDownMenu(showIcons: Boolean = true, items: () -> List<ContextMenuElement>, function: @Composable () -> Unit) {
+fun DropDownMenu(
+    enabled: Boolean = true,
+    showIcons: Boolean = true,
+    items: () -> List<ContextMenuElement>,
+    function: @Composable () -> Unit
+) {
     Box(
         modifier = Modifier
-            .dropdownMenu(showIcons, items),
+            .dropdownMenu(enabled, showIcons, items),
         propagateMinConstraints = true,
     ) {
         function()
+    }
+}
+
+
+@Composable
+fun DropDownMenuText(
+    enabled: Boolean = true,
+    showIcons: Boolean = true,
+    currentValue: String,
+    items: () -> List<ContextMenuElement>,
+) {
+    DropDownMenu(enabled, showIcons, items) {
+        Row(
+            modifier = Modifier.width(180.dp)
+                .border(
+                    width = 2.dp,
+                    color = MaterialTheme.colors.onBackground.copy(alpha = 0.1F),
+                    shape = RoundedCornerShape(4.dp),
+                )
+                .clip(shape = RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colors.background)
+                .padding(vertical = 8.dp, horizontal = 12.dp)
+                .handOnHover(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = currentValue,
+                style = MaterialTheme.typography.body2,
+                color = MaterialTheme.colors.onBackground,
+                modifier = Modifier.weight(1f),
+                maxLines = 1
+            )
+
+            Icon(
+                painter = painterResource(Res.drawable.dropdown),
+                contentDescription = null,
+                tint = MaterialTheme.colors.onBackground,
+            )
+        }
     }
 }
 
@@ -128,7 +174,11 @@ private suspend fun AwaitPointerEventScope.awaitEventFirstDown(): PointerEvent {
 
 
 @Composable
-private fun Modifier.dropdownMenu(showIcons: Boolean, items: () -> List<ContextMenuElement>): Modifier {
+private fun Modifier.dropdownMenu(
+    enabled: Boolean,
+    showIcons: Boolean,
+    items: () -> List<ContextMenuElement>
+): Modifier {
     val (isClicked, setIsClicked) = remember { mutableStateOf(false) }
     val (offset, setOffset) = remember { mutableStateOf<Offset?>(null) }
     val mod = this
@@ -137,7 +187,7 @@ private fun Modifier.dropdownMenu(showIcons: Boolean, items: () -> List<ContextM
             val offsetToBottomOfComponent = offsetToRoot.copy(y = offsetToRoot.y + layoutCoordinates.size.height)
             setOffset(offsetToBottomOfComponent)
         }
-        .handMouseClickable {
+        .handMouseClickable(enabled) {
             setIsClicked(true)
         }
 
@@ -204,7 +254,14 @@ fun showPopup(
 
         Box(
             modifier = Modifier
-                .shadow(8.dp)
+                .dropShadow(
+                    shape = RoundedCornerShape(4.dp),
+                    shadow = Shadow(
+                        radius = 5.dp,
+                        spread = 6.dp,
+                        color = Color(0x20000000),
+                    )
+                )
                 .clip(MaterialTheme.shapes.small)
                 .background(MaterialTheme.colors.background)
                 .width(IntrinsicSize.Max)
@@ -253,8 +310,8 @@ fun Separator() {
         modifier = Modifier
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .fillMaxWidth()
-            .height(1.dp)
-            .background(MaterialTheme.colors.onBackground.copy(alpha = 0.4f))
+            .height(2.dp)
+            .background(MaterialTheme.colors.onBackground.copy(alpha = 0.2f))
     )
 }
 

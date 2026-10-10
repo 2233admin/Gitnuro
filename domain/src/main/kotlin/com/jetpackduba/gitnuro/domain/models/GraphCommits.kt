@@ -1,6 +1,10 @@
 package com.jetpackduba.gitnuro.domain.models
 
+import androidx.compose.runtime.Immutable
+import java.util.*
+
+@Immutable
 data class GraphCommits(
-    val commits: List<GraphCommit>,
-    val maxLane: Int,
-): List<GraphCommit> by commits
+    val commits: LinkedHashMap<String, GraphCommit> = LinkedHashMap(),
+    val maxLane: Int = 0,
+): SequencedMap<String, GraphCommit> by commits

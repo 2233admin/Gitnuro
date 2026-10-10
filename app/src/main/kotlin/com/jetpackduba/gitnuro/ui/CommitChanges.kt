@@ -20,105 +20,70 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.jetpackduba.gitnuro.LocalTabFocusRequester
-import com.jetpackduba.gitnuro.domain.models.DiffSelected
+import com.jetpackduba.gitnuro.compose.rememberInTab
 import com.jetpackduba.gitnuro.domain.extensions.fileName
 import com.jetpackduba.gitnuro.domain.extensions.filePath
 import com.jetpackduba.gitnuro.domain.extensions.parentDirectoryPath
 import com.jetpackduba.gitnuro.domain.models.Commit
+import com.jetpackduba.gitnuro.domain.models.DiffSelected
 import com.jetpackduba.gitnuro.domain.models.Identity
-import com.jetpackduba.gitnuro.domain.models.ui.SelectedItem
-import com.jetpackduba.gitnuro.extensions.*
+import com.jetpackduba.gitnuro.extensions.handMouseClickable
+import com.jetpackduba.gitnuro.extensions.icon
+import com.jetpackduba.gitnuro.extensions.iconColor
+import com.jetpackduba.gitnuro.extensions.toSmartSystemString
+import com.jetpackduba.gitnuro.repositoryopen.CommitChangesAction
+import com.jetpackduba.gitnuro.repositoryopen.CommitChangesState
+import com.jetpackduba.gitnuro.repositoryopen.RepositoryOpenViewModel
 import com.jetpackduba.gitnuro.theme.onBackgroundSecondary
 import com.jetpackduba.gitnuro.theme.tertiarySurface
 import com.jetpackduba.gitnuro.ui.components.*
 import com.jetpackduba.gitnuro.ui.context_menu.ContextMenuElement
 import com.jetpackduba.gitnuro.ui.context_menu.committedChangesEntriesContextMenuItems
 import com.jetpackduba.gitnuro.ui.tree_files.TreeItem
-import com.jetpackduba.gitnuro.viewmodels.CommitChangesStateUi
-import com.jetpackduba.gitnuro.viewmodels.CommitChangesViewModel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import org.eclipse.jgit.diff.DiffEntry
 
 @Composable
 fun CommitChanges(
-    commitChangesViewModel: CommitChangesViewModel,
-    selectedItem: SelectedItem.CommitBasedItem,
+    viewModel: RepositoryOpenViewModel,
+    commitChangesState: CommitChangesState,
     onBlame: (String) -> Unit,
     onHistory: (String) -> Unit,
 ) {
-    val tabFocusRequester = LocalTabFocusRequester.current
-    val diffSelected by commitChangesViewModel.diffSelected.collectAsState(null)
+    val diffSelected by viewModel
+        .diffSelected
+        .filterIsInstance<DiffSelected.CommitedChanges>()
+        .collectAsState(null)
 
-    LaunchedEffect(selectedItem) {
-        commitChangesViewModel.loadChanges(selectedItem.commit)
-    }
-
-    LaunchedEffect(commitChangesViewModel) {
-        commitChangesViewModel.showSearch.collectLatest { show ->
-            if (!show) {
-                tabFocusRequester.requestFocus()
-            }
-        }
-    }
-
-    val commitChangesStatus = commitChangesViewModel.commitChangesStateUi.collectAsState().value
-    val showSearch by commitChangesViewModel.showSearch.collectAsState()
-    val changesListScroll by commitChangesViewModel.changesLazyListState.collectAsState()
-    val textScroll by commitChangesViewModel.textScroll.collectAsState()
-    val showAsTree by commitChangesViewModel.showAsTree.collectAsState(false)
-
-    var searchFilter by remember(commitChangesViewModel, showSearch, commitChangesStatus) {
-        mutableStateOf(commitChangesViewModel.searchFilter.value)
-    }
-
-    when (commitChangesStatus) {
-        CommitChangesStateUi.Loading -> {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colors.primaryVariant)
-        }
-
-        is CommitChangesStateUi.Loaded -> {
-            CommitChangesView(
-                diffSelected = diffSelected,
-                commitChangesStatus = commitChangesStatus,
-                onBlame = onBlame,
-                onHistory = onHistory,
-                onOpenFileInFolder = { commitChangesViewModel.openFileInFolder(it) },
-                showSearch = showSearch,
-                showAsTree = showAsTree,
-                changesListScroll = changesListScroll,
-                textScroll = textScroll,
-                searchFilter = searchFilter,
-                onDiffSelected = {
-                    commitChangesViewModel.selectEntries(listOf(it)) // TODO pass proper list
-                },
-                onSearchFilterToggled = { visible ->
-                    commitChangesViewModel.onSearchFilterToggled(visible)
-                },
-                onSearchFocused = {
-                    commitChangesViewModel.addSearchToCloseableView()
-                },
-                onSearchFilterChanged = { filter ->
-                    searchFilter = filter
-                    commitChangesViewModel.onSearchFilterChanged(filter)
-                },
-                onDirectoryClicked = { commitChangesViewModel.onDirectoryClicked(it.fullPath) },
-                onAlternateShowAsTree = { commitChangesViewModel.alternateShowAsTree() },
-            )
-        }
-    }
+    CommitChangesView(
+        diffSelected = diffSelected,
+        commitChangesState = commitChangesState,
+        onBlame = onBlame,
+        onHistory = onHistory,
+        onOpenFileInFolder = { viewModel.openFileInFolder(it) },
+        onDiffSelected = {
+            viewModel.onAction(CommitChangesAction.SelectEntry(it))
+        },
+        onSearchFilterToggled = { visible ->
+            viewModel.onAction(CommitChangesAction.SearchFilterToggle(visible))
+        },
+        onSearchFocused = {
+            viewModel.onAction(CommitChangesAction.AddSearchToCloseables)
+        },
+        onSearchFilterChanged = { filter ->
+            viewModel.onAction(CommitChangesAction.SearchFilterChanged(filter))
+        },
+        onDirectoryClicked = { viewModel.onAction(CommitChangesAction.TreeDirectoryToggle(it.fullPath)) },
+        onAlternateShowAsTree = { viewModel.onAction(CommitChangesAction.ToggleShowAsTree) },
+    )
 }
 
 @Composable
 private fun CommitChangesView(
-    commitChangesStatus: CommitChangesStateUi.Loaded,
+    commitChangesState: CommitChangesState,
     diffSelected: DiffSelected.CommitedChanges?,
-    changesListScroll: LazyListState,
-    textScroll: ScrollState,
-    showSearch: Boolean,
-    showAsTree: Boolean,
-    searchFilter: TextFieldValue,
     onBlame: (String) -> Unit,
     onHistory: (String) -> Unit,
     onOpenFileInFolder: (String) -> Unit,
@@ -129,14 +94,36 @@ private fun CommitChangesView(
     onDirectoryClicked: (TreeItem.Dir) -> Unit,
     onAlternateShowAsTree: () -> Unit,
 ) {
-    val commit = commitChangesStatus.commit
+    val tabFocusRequester = LocalTabFocusRequester.current
+    val commit = commitChangesState.commit
+
+    LaunchedEffect(commitChangesState.showSearch) {
+        if (!commitChangesState.showSearch) {
+            tabFocusRequester.requestFocus()
+        }
+    }
+
+    val showSearch = commitChangesState.showSearch
+    val showAsTree = commitChangesState.showAsTree
+
+    // TODO Is this needed?
+    var searchFilter by remember(commitChangesState.searchFilter, showSearch, commitChangesState) {
+        mutableStateOf(commitChangesState.searchFilter)
+    }
+
+    val changesListScroll = rememberInTab("commitChangesChangesScroll", commitChangesState.commit) {
+        LazyListState()
+    }
+
+    val textScroll = rememberInTab("commitChangesTextScroll", commitChangesState.commit) {
+        ScrollState(0)
+    }
 
     Column(
         modifier = Modifier
             .padding(end = 8.dp, bottom = 8.dp)
             .fillMaxSize(),
     ) {
-
         Column(
             modifier = Modifier
                 .padding(bottom = 4.dp)
@@ -156,45 +143,50 @@ private fun CommitChangesView(
                 showActionForSelected = false,
             )
 
-            when (commitChangesStatus) {
-                is CommitChangesStateUi.ListLoaded -> {
-                    val changes = commitChangesStatus.changes
-
-                    ListCommitLogChanges(
-                        diffSelected = diffSelected,
-                        changesListScroll = changesListScroll,
-                        diffEntries = changes,
-                        onDiffSelected = onDiffSelected,
-                        onGenerateContextMenu = { diffEntry ->
-                            committedChangesEntriesContextMenuItems(
-                                diffEntry,
-                                onBlame = { onBlame(diffEntry.filePath) },
-                                onHistory = { onHistory(diffEntry.filePath) },
-                                onOpenFileInFolder = { onOpenFileInFolder(diffEntry.parentDirectoryPath) },
-                            )
-                        }
-                    )
-                }
-
-                is CommitChangesStateUi.TreeLoaded -> {
-                    TreeCommitLogChanges(
-                        diffSelected = diffSelected,
-                        changesListScroll = changesListScroll,
-                        treeItems = commitChangesStatus.changes,
-                        onDiffSelected = onDiffSelected,
-                        onGenerateContextMenu = { diffEntry ->
-                            committedChangesEntriesContextMenuItems(
-                                diffEntry,
-                                onBlame = { onBlame(diffEntry.filePath) },
-                                onHistory = { onHistory(diffEntry.filePath) },
-                                onOpenFileInFolder = { onOpenFileInFolder(diffEntry.parentDirectoryPath) },
-                            )
-                        },
-                        onDirectoryClicked = onDirectoryClicked,
-                    )
-                }
+            if (commitChangesState.isLoading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
+            if (commitChangesState.showAsTree) {
+                TreeCommitLogChanges(
+                    diffSelected = diffSelected,
+                    changesListScroll = changesListScroll,
+                    treeItems = if (showSearch && searchFilter.text.isNotBlank()) {
+                        commitChangesState.changesTreeFiltered
+                    } else {
+                        commitChangesState.changesTree
+                    },
+                    onDiffSelected = onDiffSelected,
+                    onGenerateContextMenu = { diffEntry ->
+                        committedChangesEntriesContextMenuItems(
+                            diffEntry,
+                            onBlame = { onBlame(diffEntry.filePath) },
+                            onHistory = { onHistory(diffEntry.filePath) },
+                            onOpenFileInFolder = { onOpenFileInFolder(diffEntry.parentDirectoryPath) },
+                        )
+                    },
+                    onDirectoryClicked = onDirectoryClicked,
+                )
+            } else {
+                ListCommitLogChanges(
+                    diffSelected = diffSelected,
+                    changesListScroll = changesListScroll,
+                    diffEntries = if (showSearch && searchFilter.text.isNotBlank()) {
+                        commitChangesState.changesFiltered
+                    } else {
+                        commitChangesState.changes
+                    },
+                    onDiffSelected = onDiffSelected,
+                    onGenerateContextMenu = { diffEntry ->
+                        committedChangesEntriesContextMenuItems(
+                            diffEntry,
+                            onBlame = { onBlame(diffEntry.filePath) },
+                            onHistory = { onHistory(diffEntry.filePath) },
+                            onOpenFileInFolder = { onOpenFileInFolder(diffEntry.parentDirectoryPath) },
+                        )
+                    }
+                )
+            }
         }
 
         MessageAuthorFooter(
@@ -268,10 +260,10 @@ fun CommitFooter(
             verticalArrangement = Arrangement.Center
         ) {
             TooltipText(
-                text = author.name,
+                text = author.name.orEmpty(),
                 maxLines = 1,
                 style = MaterialTheme.typography.body2,
-                tooltipTitle = author.email,
+                tooltipTitle = author.email.orEmpty(),
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -345,7 +337,7 @@ fun ListCommitLogChanges(
                 iconColor = diffEntry.iconColor,
                 parentDirectoryPath = diffEntry.parentDirectoryPath,
                 fileName = diffEntry.fileName,
-                isSelected = false,/*diffSelected is DiffType.CommitDiff && diffSelected.diffEntry == diffEntry*/
+                isSelected = diffSelected?.items?.any { it.diffEntry == diffEntry} ?: false,
                 onClick = { onDiffSelected(diffEntry) },
                 onDoubleClick = {},
                 onGenerateContextMenu = { onGenerateContextMenu(diffEntry) },
@@ -372,10 +364,8 @@ fun TreeCommitLogChanges(
         items(items = treeItems) { entry ->
             CommitTreeItemEntry(
                 entry = entry,
-                isSelected = false,
-                /*entry is TreeItem.File &&
-                                        diffSelected is DiffType.CommitDiff &&
-                                        diffSelected.diffEntry == entry.data*/
+                isSelected = entry is TreeItem.File &&
+                        diffSelected?.items?.any { it.diffEntry == entry.data } ?: false,
                 onFileClick = { onDiffSelected(it) },
                 onDirectoryClick = { onDirectoryClicked(it) },
                 onGenerateContextMenu = onGenerateContextMenu,

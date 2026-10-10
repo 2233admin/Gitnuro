@@ -28,14 +28,18 @@
     <string name="menu_pull">Pull</string>
     <string name="menu_pull_default">Pull current branch</string>
     <string name="menu_pull_rebase">Pull current branch with rebase</string>
+    <string name="menu_pull_tooltip_disabled">Pull not available without a remote repository</string>
     <string name="menu_push">Push</string>
     <string name="menu_push_tooltip">Push current branch changes</string>
+    <string name="menu_push_tooltip_disabled">Push not available without a remote repository</string>
     <string name="menu_branch">Branch</string>
     <string name="menu_branch_tooltip">Create a new branch</string>
     <string name="menu_stash">Stash</string>
     <string name="menu_stash_tooltip">Stash uncommitted changes</string>
+    <string name="menu_stash_tooltip_disabled">Change some files to be able to stash them</string>
     <string name="menu_pop_stash">Pop stash</string>
     <string name="menu_pop_stash_tooltip">Pop the last stash</string>
+    <string name="menu_pop_stash_tooltip_disabled">No stashes to pop</string>
     <string name="menu_terminal">Terminal</string>
     <string name="menu_terminal_tooltip">Open a terminal in the repository's path</string>
     <string name="menu_actions">Actions</string>
@@ -84,8 +88,9 @@
     <string name="uncommited_changes_amend_check">Amend previous commit</string>
 
     <!-- Merge automatic stash -->
-    <string name="merge_automatic_stash_description">Automatic stash before merge of "%1$s" to "%2$s"</string>
-    <string name="pull_with_merge_automatic_stash_description">Automatic stash before pull of "%1$s"</string>
+    <string name="merge_automatic_stash_description">Automatic snapshot stash before merge of "%1$s" to "%2$s"</string>
+    <string name="pull_with_merge_automatic_stash_description">Automatic snapshot stash before pull of "%1$s"</string>
+    <string name="pull_with_merge_from_specific_branch_automatic_stash_description">Automatic snapshot stash before pull from "%1$s" to "%2$s"</string>
 
     <!-- Status entries context menu -->
     <string name="status_entries_context_menu_delete_file">Delete file</string>
@@ -119,6 +124,7 @@
     <string name="committed_changes_context_menu_open_file_in_folder">Open file in folder</string>
 
     <!-- Log context menu -->
+    <string name="log_context_menu_show_status_to_amend">Show status to amend this commit</string>
     <string name="log_context_menu_checkout_commit">Checkout commit</string>
     <string name="log_context_menu_create_branch">Create branch</string>
     <string name="log_context_menu_create_tag">Create tag</string>
@@ -189,5 +195,28 @@
 
     <!-- Error dialog -->
     <string name="error_dialog_copy_button_tooltip">Copy error</string>
+
+    <!-- Clone -->
+    <string name="clone_error_invalid_directory">Invalid empty directory</string>
+    <string name="clone_error_invalid_url">Invalid empty URL</string>
+    <string name="clone_error_invalid_folder_name">Invalid empty folder name</string>
+
+    <!-- Errors -->
+    <string name="error_create_branch_already_exists">Branch "%1$s" already exists, please try with a different name</string>
+    <string name="error_create_branch_name_not_allowed">Branch name "%1$s" is not allowed, please use only alphanumeric characters.</string>
+
+    <string name="error_hook_rejection">Commit rejected by hook: "%1$s"</string>
+
+    <string name="error_repository_path_not_set">Repository path is not stored, if you believe this is a bug, please report it to Gitnuro's issue tracker.</string>
+    <string name="error_repository_read_error">Failed to read a repository: %1$s. Please verify the repository exists and it's accessible.</string>
+
+    <string name="error_stash_no_data">No data to stash</string>
+
+    <string name="error_open_repository_dir_not_found">Failed to open repository, please verify it exists and it's accessible</string>
+    <string name="error_open_repository_path_is_not_dir">Failed to open repository, specified path is not a directory</string>
+    <string name="error_open_repository_repository_load">Failed to open repository, could not load repository: %1$s</string>
+    <string name="error_open_repository_repo_not_found">Failed to open repository, could not find a repository in the specified path</string>
+
+    <string name="error_sign_ssh_key_not_found">Could not find signing key specified in your config</string>
 
 </resources>

@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import com.jetpackduba.gitnuro.LocalAvatarProvider
@@ -22,15 +23,19 @@ import org.eclipse.jgit.lib.PersonIdent
 fun AvatarImage(
     modifier: Modifier = Modifier,
     personIdent: Identity,
+    shape: Shape = CircleShape,
     color: Color = MaterialTheme.colors.primary,
 ) {
     val current = LocalAvatarProvider.current
 
     Box(
         modifier = modifier
-            .clip(CircleShape)
+            .clip(shape)
     ) {
-        val avatarProviderUrl = current.getAvatarUrl(personIdent.email.sha256)
+        val avatarProviderUrl = personIdent
+            .email
+            ?.let { email -> current.getAvatarUrl(email.sha256) }
+
         var isSuccessfulLoad by remember { mutableStateOf(false) }
 
         AsyncImage(
@@ -51,7 +56,7 @@ fun AvatarImage(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = personIdent.name.firstOrNull()?.uppercase() ?: "#",
+                    text = personIdent.name?.firstOrNull()?.uppercase() ?: "#",
                     color = Color.White,
                 )
             }
